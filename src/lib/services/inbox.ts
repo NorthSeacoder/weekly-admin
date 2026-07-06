@@ -87,7 +87,7 @@ type PromotionOverrides = {
 export async function buildContentDataForPromotion(
   item: InboxItemForPromotion,
   overrides: PromotionOverrides = {},
-) {
+): Promise<Prisma.contentsCreateInput> {
   const contentTypeId = overrides.content_type_id ?? item.data_source?.default_content_type_id ?? 3;
   const contentFormat = overrides.content_format ?? 'markdown';
 
@@ -128,7 +128,7 @@ export async function buildContentDataForPromotion(
 
   return {
     content_type_id: contentTypeId,
-    category_id: resolvedCategoryId,
+    ...(resolvedCategoryId ? { categories: { connect: { id: resolvedCategoryId } } } : {}),
     title,
     slug,
     description,
@@ -146,14 +146,13 @@ export async function buildContentDataForPromotion(
         .filter(Boolean)
         .join('\n')
         .trim(),
-    content_format: contentFormat as 'markdown' | 'html' | 'mdx',
+    content_format: contentFormat as Prisma.contentsCreateInput['content_format'],
     status: 'draft' as const,
     source: item.source_name,
     source_url: sourceUrl,
     word_count: 0,
     original_score: overrides.original_score ?? item.ai_score ?? null,
     collected_at: item.synced_at ?? item.created_at ?? new Date(),
-    auto_promoted: overrides.auto_promoted ?? false,
   };
 }
 
@@ -293,74 +292,12 @@ export class InboxService {
     if (!item) throw new Error('收件箱条目不存在');
     if (item.content_id) throw new Error('该条目已晋升为内容');
 
-    const contentTypeId = input.content_type_id ?? item.data_source?.default_content_type_id ?? 3;
-    const contentFormat = input.content_format ?? 'markdown';
-
-    let resolvedCategoryId = input.category_id ?? item.data_source?.default_category_id ?? null;
-    if (!resolvedCategoryId && item.category_suggestion) {
-      const suggestedName = item.category_suggestion.trim();
-      if (suggestedName) {
-        const slugBase = generateSlug(suggestedName);
-        let category = await prisma.categories.findFirst({
-          where: { OR: [{ name: suggestedName }, { slug: slugBase }] },
-        });
-        if (!category) {
-          let uniqueSlug = slugBase || `category-${Date.now()}`;
-          let counter = 1;
-           
-          while (true) {
-            const exists = await prisma.categories.findFirst({ where: { slug: uniqueSlug } });
-            if (!exists) break;
-            uniqueSlug = `${slugBase}-${counter++}`;
-            if (counter > 50) {
-              uniqueSlug = `${slugBase}-${Date.now()}`;
-              break;
-            }
-          }
-          category = await prisma.categories.create({
-            data: { name: suggestedName, slug: uniqueSlug },
-          });
-        }
-        resolvedCategoryId = category.id;
-      }
-    }
-
-    const title = (item.title || '').trim() || item.url;
-    const slug = item.slug || `${generateSlug(title)}-${Date.now()}`;
-    const description = item.description || item.summary || item.note || '';
-    const summary = item.summary || item.description || item.note || null;
-    const sourceUrl = item.url;
-
     const content = await prisma.contents.create({
-      data: {
-        content_type_id: contentTypeId,
-        category_id: resolvedCategoryId,
-        title,
-        slug,
-        description,
-        summary,
-        content:
-          item.content ||
-          [
-            `## ${title}`,
-            '',
-            summary ? summary.trim() : '',
-            '',
-            `**来源**: [${item.source_name || hostnameFromUrl(sourceUrl)}](${sourceUrl})`,
-            item.note ? `\n**笔记**\n${item.note}` : '',
-          ]
-            .filter(Boolean)
-            .join('\n')
-            .trim(),
-        content_format: contentFormat as any,
-        status: 'draft',
-        source: item.source_name,
-        source_url: sourceUrl,
-        word_count: 0,
-        // 传递评分和收集时间
-        original_score: item.ai_score ?? null,
-        collected_at: item.synced_at ?? item.created_at ?? new Date(),
-      },
+      data: await buildContentDataForPromotion(item, {
+        content_type_id: input.content_type_id,
+        category_id: input.category_id,
+        content_format: input.content_format,
+      }),
     });
 
     const explicitTagIds = input.tag_ids ?? [];
