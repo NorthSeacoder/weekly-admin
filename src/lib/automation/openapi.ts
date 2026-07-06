@@ -74,6 +74,7 @@ export function getAutomationOpenApiDocument() {
             { AutomationBearer: ['sync:run'] },
             { AutomationBearer: ['score:run'] },
             { AutomationBearer: ['content:resync'] },
+            { AutomationBearer: ['weekly:suggest'] },
             { AutomationBearer: ['weekly:publish'] },
           ],
           parameters: [
@@ -126,11 +127,24 @@ export function getAutomationOpenApiDocument() {
           responses: automationResponses('WeeklyCandidatesResult'),
         },
       },
+      '/weekly/current': {
+        get: {
+          tags: ['Weekly'],
+          summary: 'Read current weekly issue',
+          description: 'Returns the weekly issue covering a target week. This lets Hermes and other agents discover weeklyIssueId without direct database access.',
+          security: [{ AutomationBearer: ['weekly:read'] }],
+          parameters: [
+            queryParam('weekOffset', { type: 'integer', default: 0 }),
+            queryParam('date', { type: 'string', format: 'date' }),
+          ],
+          responses: automationResponses('WeeklyCurrentResult'),
+        },
+      },
       '/weekly/suggestions': {
         post: {
           tags: ['Weekly'],
-          summary: 'Preview weekly organization suggestions',
-          description: 'Generates an Admin preview or registers a Hermes preview artifact only; it does not write weekly_content_items.',
+          summary: 'Queue weekly organization suggestions',
+          description: 'Queues Admin suggestion generation or Hermes preview artifact registration. The worker records a preview only; it does not write weekly_content_items.',
           security: [{ AutomationBearer: ['weekly:suggest'] }],
           parameters: [idempotencyHeader()],
           requestBody: jsonBody({
@@ -168,14 +182,14 @@ export function getAutomationOpenApiDocument() {
               },
             ],
           }),
-          responses: automationResponses('WeeklySuggestionResult'),
+          responses: automationResponses('QueuedJobResult', 202),
         },
       },
       '/weekly/suggestions/{id}/apply': {
         post: {
           tags: ['Weekly'],
-          summary: 'Apply weekly organization suggestions',
-          description: 'Applies a preview suggestion payload to weekly_content_items and preserves section/featured fields.',
+          summary: 'Queue weekly organization suggestion apply',
+          description: 'Queues applying a preview suggestion payload to weekly_content_items and preserves section/featured fields.',
           security: [{ AutomationBearer: ['weekly:suggest'] }],
           parameters: [
             {
@@ -212,7 +226,7 @@ export function getAutomationOpenApiDocument() {
             },
             additionalProperties: false,
           }),
-          responses: automationResponses('WeeklySuggestionApplyResult'),
+          responses: automationResponses('QueuedJobResult', 202),
         },
       },
       '/weekly/publish': {
@@ -360,6 +374,47 @@ export function getAutomationOpenApiDocument() {
         },
         SyncResult: statusObjectSchema(),
         ScoreResult: statusObjectSchema(),
+        WeeklyCurrentResult: {
+          type: 'object',
+          required: ['status', 'range', 'issue'],
+          properties: {
+            status: { type: 'string', enum: ['succeeded', 'empty'] },
+            range: {
+              type: 'object',
+              required: ['startDate', 'endDate'],
+              properties: {
+                startDate: { type: 'string', format: 'date' },
+                endDate: { type: 'string', format: 'date' },
+              },
+              additionalProperties: false,
+            },
+            issue: {
+              oneOf: [
+                { type: 'null' },
+                {
+                  type: 'object',
+                  required: ['id', 'issueNumber', 'title', 'slug', 'status', 'startDate', 'endDate', 'linkedCount'],
+                  properties: {
+                    id: { type: 'integer', minimum: 1 },
+                    issueNumber: { type: 'integer', minimum: 1 },
+                    title: { type: 'string' },
+                    slug: { type: 'string' },
+                    status: { type: 'string' },
+                    startDate: { type: 'string', format: 'date' },
+                    endDate: { type: 'string', format: 'date' },
+                    totalItems: { type: 'integer' },
+                    linkedCount: { type: 'integer' },
+                    quailPostId: { type: ['string', 'null'] },
+                    quailPostSlug: { type: ['string', 'null'] },
+                    publishedAt: { type: ['string', 'null'], format: 'date-time' },
+                  },
+                  additionalProperties: false,
+                },
+              ],
+            },
+          },
+          additionalProperties: false,
+        },
         WeeklyCandidatesResult: statusObjectSchema(),
         WeeklySuggestionArtifact: weeklySuggestionArtifactSchema(),
         WeeklySuggestionResult: {

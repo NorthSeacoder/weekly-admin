@@ -4,6 +4,17 @@ import { InboxScoringService } from '@/lib/services/inbox-scoring';
 import { executeKarakeepResyncJob, type KarakeepResyncPayload } from '@/lib/services/karakeep-resync';
 import { prisma } from '@/lib/db';
 import { quailService } from '@/lib/services/quail';
+import {
+  createAdminWeeklySuggestionPreviewResult,
+  normalizeWeeklySuggestionArtifact,
+  toWeeklySuggestionPreviewResult,
+} from '@/lib/automation/hermes-artifacts';
+import { organizeWeekly } from '@/lib/ai/server/weekly-organizer';
+import {
+  applyWeeklySuggestion,
+  SuggestionApplySchema,
+  validateWeeklySuggestionItems,
+} from '@/lib/automation/weekly-suggestions';
 import type { AutomationRunSuccess } from '@/lib/automation/run';
 import type { AutomationJobName } from './definitions';
 
@@ -29,6 +40,13 @@ type WeeklyPublishPayload = {
   deliver?: boolean;
 };
 
+type WeeklySuggestPayload = {
+  mode?: 'generate' | 'register';
+  weeklyIssueId?: number;
+  maxItems?: number;
+  artifact?: unknown;
+};
+
 export class AutomationJobExecutionError extends Error {
   constructor(
     message: string,
@@ -50,6 +68,10 @@ export async function executeAutomationJob(
       return executeScoreJob(payload as ScorePayload);
     case 'karakeep.resync':
       return executeKarakeepResyncJob(payload as KarakeepResyncPayload);
+    case 'weekly.suggest':
+      return executeWeeklySuggestJob(payload as WeeklySuggestPayload);
+    case 'weekly.apply':
+      return executeWeeklyApplyJob(payload);
     case 'weekly.publish':
       return executeWeeklyPublishJob(payload as WeeklyPublishPayload);
     default:
@@ -153,6 +175,61 @@ async function executeScoreJob(payload: ScorePayload): Promise<AutomationRunSucc
       ...result,
     },
   };
+}
+
+async function executeWeeklySuggestJob(payload: WeeklySuggestPayload): Promise<AutomationRunSuccess<Record<string, unknown>>> {
+  if (payload.mode === 'register') {
+    const artifact = normalizeWeeklySuggestionArtifact(getRegisterArtifactInput(payload));
+    if (artifact.status === 'preview') {
+      await validateWeeklySuggestionItems({
+        weeklyIssueId: artifact.weeklyIssueId,
+        items: artifact.items,
+      });
+    }
+
+    return {
+      status: artifact.status === 'empty' ? 'empty' : 'succeeded',
+      result: toWeeklySuggestionPreviewResult(artifact),
+    };
+  }
+
+  if (!Number.isInteger(payload.weeklyIssueId) || Number(payload.weeklyIssueId) <= 0) {
+    throw new AutomationJobExecutionError('Weekly issue id is required', {
+      status: 'failed',
+      code: 'VALIDATION_ERROR',
+      weeklyIssueId: payload.weeklyIssueId,
+    });
+  }
+
+  const weeklyIssueId = Number(payload.weeklyIssueId);
+  const maxItems = Number.isInteger(payload.maxItems) && Number(payload.maxItems) > 0
+    ? Math.min(Number(payload.maxItems), 30)
+    : 12;
+  const suggestion = await organizeWeekly({ weeklyIssueId, maxItems });
+
+  return {
+    status: 'succeeded',
+    result: createAdminWeeklySuggestionPreviewResult({
+      weeklyIssueId,
+      suggestion,
+    }),
+  };
+}
+
+async function executeWeeklyApplyJob(payload: Record<string, unknown>): Promise<AutomationRunSuccess<Record<string, unknown>>> {
+  const result = await applyWeeklySuggestion(SuggestionApplySchema.parse(payload));
+
+  return {
+    status: result.status === 'applied' ? 'succeeded' : 'skipped',
+    result,
+  };
+}
+
+function getRegisterArtifactInput(payload: WeeklySuggestPayload): unknown {
+  if ('artifact' in payload) return payload.artifact;
+
+  const { mode: _mode, ...artifact } = payload;
+  return artifact;
 }
 
 async function executeWeeklyPublishJob(payload: WeeklyPublishPayload): Promise<AutomationRunSuccess<Record<string, unknown>>> {

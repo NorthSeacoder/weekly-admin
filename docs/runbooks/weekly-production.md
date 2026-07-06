@@ -9,6 +9,7 @@ Last updated: 2026-07-06
 2. Score and auto-promote high-value inbox items:
    - `/vol1/1000/Docker/weekly-admin/scripts/weekly-admin-job.sh score`
 3. Review candidates in Admin weekly workbench, or inspect:
+   - `/api/v1/weekly/current?weekOffset=0`
    - `/api/v1/weekly/candidates?weekOffset=0&limit=30&status=ready`
 4. Apply suggestions or manual fallback to the current weekly issue.
 5. Publish to Quail with `deliver=false` first. Send email only after manual confirmation.
@@ -25,6 +26,21 @@ Cron is installed on the NAS user crontab:
 ```
 
 The script reads `/vol1/1000/Docker/weekly-admin/.env` and uses `CRON_API_TOKEN`. Do not print or commit token values.
+
+## Hermes / WeCom Ops
+
+Hermes WeCom is the preferred short-message ops channel when available. The Admin repo provides a host-side helper script:
+
+```bash
+/vol1/1000/Docker/weekly-admin/scripts/weekly-hermes-ops.sh notify
+/vol1/1000/Docker/weekly-admin/scripts/weekly-hermes-ops.sh suggest
+```
+
+- `notify` sends the current issue state and top ready candidates to Hermes target `wecom` by default.
+- `suggest` first queues `/api/v1/weekly/suggestions` for the current issue, then sends the queued run id and candidate summary.
+- Override target with `HERMES_TARGET=wecom:MengPeng`.
+- The script uses `/api/v1/weekly/current` to discover `weeklyIssueId`; Hermes should not read MySQL directly.
+- WeCom is a review/notification channel only. Apply and Quail publish still require Admin/workbench confirmation.
 
 ## Frontend Deploy
 

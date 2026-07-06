@@ -7,6 +7,9 @@ const runBatchMock = vi.fn();
 const executeKarakeepResyncJobMock = vi.fn();
 const findWeeklyIssueMock = vi.fn();
 const publishWeeklyMock = vi.fn();
+const organizeWeeklyMock = vi.fn();
+const validateWeeklySuggestionItemsMock = vi.fn();
+const applyWeeklySuggestionMock = vi.fn();
 
 vi.mock('@/lib/services/data-source', () => ({
   DataSourceService: {
@@ -44,6 +47,19 @@ vi.mock('@/lib/services/quail', () => ({
     publishWeekly: (...args: unknown[]) => publishWeeklyMock(...args),
   },
 }));
+
+vi.mock('@/lib/ai/server/weekly-organizer', () => ({
+  organizeWeekly: (...args: unknown[]) => organizeWeeklyMock(...args),
+}));
+
+vi.mock('@/lib/automation/weekly-suggestions', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/automation/weekly-suggestions')>('@/lib/automation/weekly-suggestions');
+  return {
+    ...actual,
+    validateWeeklySuggestionItems: (...args: unknown[]) => validateWeeklySuggestionItemsMock(...args),
+    applyWeeklySuggestion: (...args: unknown[]) => applyWeeklySuggestionMock(...args),
+  };
+});
 
 import { AutomationJobExecutionError, executeAutomationJob } from './worker-handlers';
 
@@ -195,6 +211,87 @@ describe('automation worker handlers', () => {
       contentId: 42,
       karakeepId: 'bookmark_1',
     }));
+  });
+
+  it('generates weekly suggestions through the worker handler', async () => {
+    organizeWeeklyMock.mockResolvedValueOnce({
+      intro: '建议聚焦 AI 工具',
+      items: [{ content_id: 10, section: 'AI', reason: '高分候选' }],
+    });
+
+    await expect(executeAutomationJob('weekly.suggest', {
+      weeklyIssueId: 7,
+      maxItems: 5,
+    })).resolves.toMatchObject({
+      status: 'succeeded',
+      result: {
+        status: 'preview',
+        weeklyIssueId: 7,
+        provider: 'admin',
+        suggestion: {
+          items: [{ content_id: 10, section: 'AI', featured: false, reason: '高分候选' }],
+        },
+      },
+    });
+    expect(organizeWeeklyMock).toHaveBeenCalledWith({ weeklyIssueId: 7, maxItems: 5 });
+  });
+
+  it('registers Hermes weekly suggestion artifacts through the worker handler', async () => {
+    validateWeeklySuggestionItemsMock.mockResolvedValueOnce({ issue: {}, contents: [] });
+
+    await expect(executeAutomationJob('weekly.suggest', {
+      mode: 'register',
+      artifact: {
+        provider: 'hermes',
+        weeklyIssueId: 7,
+        agentRunId: 'hermes_1',
+        confidence: 0.8,
+        items: [{ content_id: 10, section: 'AI', reason: '偏好命中' }],
+      },
+    })).resolves.toMatchObject({
+      status: 'succeeded',
+      result: {
+        status: 'preview',
+        provider: 'hermes',
+        weeklyIssueId: 7,
+        agentRunId: 'hermes_1',
+        confidence: 0.8,
+      },
+    });
+    expect(validateWeeklySuggestionItemsMock).toHaveBeenCalledWith({
+      weeklyIssueId: 7,
+      items: [expect.objectContaining({ content_id: 10, section: 'AI' })],
+    });
+  });
+
+  it('applies weekly suggestions through the worker handler', async () => {
+    applyWeeklySuggestionMock.mockResolvedValueOnce({
+      status: 'applied',
+      weeklyIssueId: 7,
+      linkedCount: 1,
+      skippedCount: 0,
+      linkedContents: [{ id: 10, title: 'A', section: 'AI' }],
+      skippedContents: [],
+    });
+
+    await expect(executeAutomationJob('weekly.apply', {
+      weeklyIssueId: 7,
+      items: [{ content_id: 10, section: 'AI' }],
+    })).resolves.toMatchObject({
+      status: 'succeeded',
+      result: {
+        status: 'applied',
+        weeklyIssueId: 7,
+        linkedCount: 1,
+      },
+    });
+    expect(applyWeeklySuggestionMock).toHaveBeenCalledWith({
+      weeklyIssueId: 7,
+      replaceExisting: false,
+      sourceRunId: undefined,
+      agentRunId: undefined,
+      items: [{ content_id: 10, section: 'AI', featured: false }],
+    });
   });
 
   it('publishes a weekly issue through Quail', async () => {

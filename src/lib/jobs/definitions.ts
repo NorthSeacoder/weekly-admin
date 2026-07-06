@@ -99,9 +99,9 @@ export const AUTOMATION_JOB_DEFINITIONS: Record<AutomationJobName, AutomationJob
     step: 'suggest',
     jobName: 'weekly.suggest',
     scope: 'weekly:suggest',
-    firstBatch: false,
-    attempts: 1,
-    backoff: { type: 'fixed', delay: 0 },
+    firstBatch: true,
+    attempts: 2,
+    backoff: { type: 'exponential', delay: 30_000 },
     rateLimit: { limit: 5, windowMs: 60_000 },
     getTarget: weeklyIssueTarget,
   },
@@ -110,9 +110,9 @@ export const AUTOMATION_JOB_DEFINITIONS: Record<AutomationJobName, AutomationJob
     step: 'apply',
     jobName: 'weekly.apply',
     scope: 'weekly:suggest',
-    firstBatch: false,
-    attempts: 1,
-    backoff: { type: 'fixed', delay: 0 },
+    firstBatch: true,
+    attempts: 2,
+    backoff: { type: 'exponential', delay: 30_000 },
     rateLimit: { limit: 10, windowMs: 60_000 },
     getTarget: weeklyIssueTarget,
   },
@@ -142,7 +142,10 @@ export function getSubmittableAutomationJobDefinition(jobName: AutomationJobName
 }
 
 function weeklyIssueTarget(payload: Record<string, unknown>): AutomationJobTarget {
-  const weeklyIssueId = payload.weeklyIssueId ?? payload.issueId;
+  const artifact = payload.artifact && typeof payload.artifact === 'object'
+    ? payload.artifact as Record<string, unknown>
+    : undefined;
+  const weeklyIssueId = payload.weeklyIssueId ?? payload.issueId ?? artifact?.weeklyIssueId;
   return {
     targetType: 'weekly_issue',
     targetId: weeklyIssueId === undefined ? 'unknown' : String(weeklyIssueId),

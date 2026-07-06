@@ -125,12 +125,21 @@ Idempotency-Key: <caller-stable-key>
 | `GET /api/v1/openapi.json` | public | - | - | 机器可读契约 |
 | `POST /api/v1/jobs/sync` | automation | `sync:run` | required | 同步数据源 |
 | `POST /api/v1/jobs/score` | automation | `score:run` | required | 批量评分 |
+| `GET /api/v1/weekly/current` | automation | `weekly:read` | generated | 查询覆盖目标周的 current issue，供 Hermes 获取 `weeklyIssueId` |
 | `GET /api/v1/weekly/candidates` | automation | `weekly:read` | generated | 查询周刊候选 |
-| `POST /api/v1/weekly/suggestions` | automation | `weekly:suggest` | required | 生成 Admin preview 或登记 Hermes preview artifact，不写 `weekly_content_items` |
-| `POST /api/v1/weekly/suggestions/{id}/apply` | automation | `weekly:suggest` | required | `{id}` 是 weekly issue id；将 preview items 写入 `weekly_content_items`，保留 section/featured |
+| `POST /api/v1/weekly/suggestions` | automation | `weekly:suggest` | required | 入队生成 Admin preview 或登记 Hermes preview artifact，不写 `weekly_content_items` |
+| `POST /api/v1/weekly/suggestions/{id}/apply` | automation | `weekly:suggest` | required | `{id}` 是 weekly issue id；入队将 preview items 写入 `weekly_content_items`，保留 section/featured |
 | `POST /api/v1/weekly/publish` | automation | `weekly:publish` | required | 发布周刊到 Quail；已发布内容必须显式 `forceRepublish` |
 | `GET /api/v1/ai/feedback/digest` | automation | `ops:read` | generated | 从 `operation_logs` 汇总 inbox feedback |
 | `POST /api/v1/ai/score` | human JWT | - | - | 管理端手动单条重评分；automation 使用 `/api/v1/jobs/score` |
+
+Hermes 不应直读 MySQL 来寻找当前期号。先调用：
+
+```text
+GET /api/v1/weekly/current?weekOffset=0
+```
+
+返回的 `data.issue.id` 是后续 `/weekly/suggestions` 和 `/weekly/suggestions/{id}/apply` 的 `weeklyIssueId`。
 
 `POST /api/v1/weekly/suggestions` 有两种模式。
 
@@ -174,6 +183,8 @@ Hermes 登记已生成的 preview artifact：
 
 Hermes artifact 可以返回 `preview`、`empty`、`stale` 或 `rejected`。`preview` 会校验 content id 是否仍符合 Admin apply 规则；`empty` 不写业务表，只记录可复盘的空结果。Artifact 不得包含 token、token hash、DB URL、Redis password、provider key 或完整私密正文。
 
+该接口返回 queued job envelope；通过 `data.statusUrl` 或 `GET /api/v1/jobs/{runId}` 查看 worker 生成的 preview artifact。浏览器工作台的 cookie-auth wrapper 仍可同步生成/展示预览，供人工编辑使用。
+
 Suggestion apply body 使用 `/api/v1/weekly/suggestions` 返回的 preview items。写回必须由 Admin UI/workbench 人工确认后触发：
 
 ```json
@@ -191,6 +202,8 @@ Suggestion apply body 使用 `/api/v1/weekly/suggestions` 返回的 preview item
   ]
 }
 ```
+
+Automation apply 同样返回 queued job envelope。浏览器工作台 wrapper 仍保留人工同步 apply 路径；外部 Hermes/cron/企微触发应走 queued `/api/v1` 路径。
 
 Publish body：
 

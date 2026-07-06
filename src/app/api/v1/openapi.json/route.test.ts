@@ -57,6 +57,7 @@ describe('/api/v1/openapi.json', () => {
       { AutomationBearer: ['sync:run'] },
       { AutomationBearer: ['score:run'] },
       { AutomationBearer: ['content:resync'] },
+      { AutomationBearer: ['weekly:suggest'] },
       { AutomationBearer: ['weekly:publish'] },
     ]);
     expect(body.paths['/jobs/{id}'].get.responses['200'].content['application/json'].schema.allOf[1].properties.data.$ref)
@@ -97,6 +98,24 @@ describe('/api/v1/openapi.json', () => {
       .toBe('#/components/schemas/QueuedJobResult');
   });
 
+  it('documents current weekly issue discovery for Hermes callers', async () => {
+    const body = await (await GET()).json();
+
+    expect(body.paths['/weekly/current'].get.security).toEqual([
+      { AutomationBearer: ['weekly:read'] },
+    ]);
+    expect(body.paths['/weekly/current'].get.description).toContain('without direct database access');
+    expect(body.components.schemas.WeeklyCurrentResult.properties.issue.oneOf).toEqual(expect.arrayContaining([
+      { type: 'null' },
+      expect.objectContaining({
+        properties: expect.objectContaining({
+          issueNumber: { type: 'integer', minimum: 1 },
+          linkedCount: { type: 'integer' },
+        }),
+      }),
+    ]));
+  });
+
   it('documents Hermes weekly suggestion register mode', async () => {
     const body = await (await GET()).json();
 
@@ -116,9 +135,14 @@ describe('/api/v1/openapi.json', () => {
       ]));
     expect(body.components.schemas.WeeklySuggestionArtifact.properties).toHaveProperty('agentRunId');
     expect(body.components.schemas.WeeklySuggestionResult.properties.provider.enum).toEqual(['hermes', 'admin']);
+    expect(body.paths['/weekly/suggestions'].post.summary).toBe('Queue weekly organization suggestions');
+    expect(body.paths['/weekly/suggestions'].post.responses['202'].content['application/json'].schema.allOf[1].properties.data.$ref)
+      .toBe('#/components/schemas/QueuedJobResult');
     expect(body.paths['/weekly/suggestions/{id}/apply'].post.parameters[0].description).toContain('Weekly issue id');
     expect(body.paths['/weekly/suggestions/{id}/apply'].post.requestBody.content['application/json'].schema.properties)
       .toHaveProperty('sourceRunId');
+    expect(body.paths['/weekly/suggestions/{id}/apply'].post.responses['202'].content['application/json'].schema.allOf[1].properties.data.$ref)
+      .toBe('#/components/schemas/QueuedJobResult');
   });
 
   it('documents digest as ops read automation and score as human manual compatibility', async () => {

@@ -1,14 +1,12 @@
 import { NextRequest } from 'next/server';
 import { z } from 'zod';
 
-import { automationErrorToResponse, getRequiredIdempotencyKey, runAutomationRoute } from '@/lib/automation/http';
 import {
-  createAdminWeeklySuggestionPreviewResult,
-  normalizeWeeklySuggestionArtifact,
-  toWeeklySuggestionPreviewResult,
-} from '@/lib/automation/hermes-artifacts';
-import { validateWeeklySuggestionItems } from '@/lib/automation/weekly-suggestions';
-import { organizeWeekly } from '@/lib/ai/server/weekly-organizer';
+  automationErrorToResponse,
+  getRequiredIdempotencyKey,
+  runQueuedAutomationRoute,
+} from '@/lib/automation/http';
+import { normalizeWeeklySuggestionArtifact } from '@/lib/automation/hermes-artifacts';
 
 const GenerateBodySchema = z.object({
   mode: z.enum(['generate']).optional(),
@@ -36,48 +34,16 @@ export async function POST(request: NextRequest) {
     const body = mode === 'register'
       ? RegisterBodySchema.parse(rawBody)
       : GenerateBodySchema.parse(rawBody);
+    if (body.mode === 'register') {
+      normalizeWeeklySuggestionArtifact(getRegisterArtifactInput(body));
+    }
     const idempotencyKey = getRequiredIdempotencyKey(request);
-    const targetId = body.mode === 'register'
-      ? normalizeWeeklySuggestionArtifact(getRegisterArtifactInput(body)).weeklyIssueId
-      : body.weeklyIssueId;
 
-    return runAutomationRoute(request, {
+    return runQueuedAutomationRoute(request, {
       scope: 'weekly:suggest',
-      workflow: 'weekly',
-      step: 'suggest',
-      targetType: 'weekly_issue',
-      targetId,
+      jobName: 'weekly.suggest',
       idempotencyKey,
       requestPayload: body,
-      handler: async () => {
-        if (body.mode === 'register') {
-          const artifact = normalizeWeeklySuggestionArtifact(getRegisterArtifactInput(body));
-          if (artifact.status === 'preview') {
-            await validateWeeklySuggestionItems({
-              weeklyIssueId: artifact.weeklyIssueId,
-              items: artifact.items,
-            });
-          }
-
-          return {
-            status: artifact.status === 'empty' ? 'empty' as const : 'succeeded' as const,
-            result: toWeeklySuggestionPreviewResult(artifact),
-          };
-        }
-
-        const suggestion = await organizeWeekly({
-          weeklyIssueId: body.weeklyIssueId,
-          maxItems: body.maxItems,
-        });
-
-        return {
-          status: 'succeeded',
-          result: createAdminWeeklySuggestionPreviewResult({
-            weeklyIssueId: body.weeklyIssueId,
-            suggestion,
-          }),
-        };
-      },
     });
   } catch (error) {
     return automationErrorToResponse(error);

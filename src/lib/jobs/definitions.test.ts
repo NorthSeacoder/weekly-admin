@@ -75,14 +75,34 @@ describe('automation job definitions', () => {
     });
   });
 
-  it('keeps weekly suggestion jobs reserved for later slices', () => {
-    expect(getAutomationJobDefinition('weekly.suggest')).toMatchObject({
+  it('registers weekly suggest and apply as submittable weekly issue jobs', () => {
+    expect(getSubmittableAutomationJobDefinition('weekly.suggest')).toMatchObject({
       workflow: 'weekly',
       step: 'suggest',
-      firstBatch: false,
+      scope: 'weekly:suggest',
+      firstBatch: true,
+      attempts: 2,
     });
-    expect(() => getSubmittableAutomationJobDefinition('weekly.suggest')).toThrow(
-      'Automation job weekly.suggest is reserved'
-    );
+    expect(getSubmittableAutomationJobDefinition('weekly.suggest').getTarget({
+      mode: 'register',
+      artifact: { weeklyIssueId: 7 },
+    })).toEqual({
+      targetType: 'weekly_issue',
+      targetId: '7',
+      targetKey: 'weekly_issue:7',
+    });
+
+    expect(getSubmittableAutomationJobDefinition('weekly.apply')).toMatchObject({
+      workflow: 'weekly',
+      step: 'apply',
+      scope: 'weekly:suggest',
+      firstBatch: true,
+      attempts: 2,
+    });
+    expect(getAutomationJobDefinition('weekly.apply').getTarget({ weeklyIssueId: 7 })).toEqual({
+      targetType: 'weekly_issue',
+      targetId: '7',
+      targetKey: 'weekly_issue:7',
+    });
   });
 });
