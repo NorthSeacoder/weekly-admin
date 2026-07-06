@@ -14,4 +14,14 @@
 
 ## NAS Smoke
 
-Pending deploy.
+- PASS: GitHub Actions `Build and Deploy to NAS` run `28807664803` completed with `success` for commit `c1ee102`.
+- PASS: NAS containers are running image revision `c1ee102ad61a34b685d46fa5e3f0e1021820cc80`.
+- PASS: `GET /api/v1/weekly/current?weekOffset=0` returned issue `92`, range `2026-07-05` to `2026-07-11`, issue dates `2026-03-29` to `2026-07-11`, status `published`, linked `12`.
+- PASS: `POST /api/v1/weekly/suggestions` with a Hermes `empty` register artifact returned queued run `auto_9b69e2ac-33e8-43bc-805e-c4aa4aa8d512`.
+- PASS: `GET /api/v1/jobs/auto_9b69e2ac-33e8-43bc-805e-c4aa4aa8d512` returned status `empty`, durable status `empty`, worker `worker-34`, attempts `2`.
+- PASS: `/vol1/1000/Docker/weekly-admin/scripts/weekly-hermes-ops.sh notify` sent to `wecom:MengPeng`.
+
+## Notes
+
+- The host-side Hermes helper was copied to NAS scripts because the deployment path does not check out the repository on the host.
+- The helper streams the generated message into `docker exec -i hermes-agent hermes send --file -`; passing a host temp path into the container does not work.

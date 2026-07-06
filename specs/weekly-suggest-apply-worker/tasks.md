@@ -11,5 +11,5 @@
 - [x] T006 Add Hermes/WeCom host helper script.
 - [x] T007 Update OpenAPI and runbook/docs.
 - [x] T008 Run focused tests, type-check, lint and build.
-- [ ] T009 Run NAS smoke after deploy.
-- [ ] T010 Closeout acceptance and roadmap.
+- [x] T009 Run NAS smoke after deploy.
+- [x] T010 Closeout acceptance and roadmap.

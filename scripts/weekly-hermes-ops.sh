@@ -5,7 +5,7 @@ BASE_DIR="${WEEKLY_ADMIN_BASE_DIR:-/vol1/1000/Docker/weekly-admin}"
 ENV_FILE="${WEEKLY_ADMIN_ENV_FILE:-$BASE_DIR/.env}"
 API_URL="${WEEKLY_API_URL:-http://127.0.0.1:3000}"
 HERMES_TARGET="${HERMES_TARGET:-wecom}"
-HERMES_SEND_CMD="${HERMES_SEND_CMD:-docker exec hermes-agent hermes send}"
+HERMES_SEND_CMD="${HERMES_SEND_CMD:-docker exec -i hermes-agent hermes send}"
 
 if [ -f "$ENV_FILE" ]; then
   set -a
@@ -100,5 +100,7 @@ print()
 print("Next: review Admin workbench, apply suggestions manually, then publish with deliver=false first.")
 PY
 
+# The default sender runs inside the hermes-agent container, so stream the
+# host-side temp file through stdin instead of passing a host path.
 # shellcheck disable=SC2086
-$HERMES_SEND_CMD --to "$HERMES_TARGET" --subject "[weekly]" --file "$message_file"
+$HERMES_SEND_CMD --to "$HERMES_TARGET" --subject "[weekly]" --file - < "$message_file"

@@ -2,7 +2,7 @@
 
 **Workspace**: `weekly-suggest-apply-worker`
 **Created**: 2026-07-07
-**Status**: Implemented / Verify Pending
+**Status**: Accepted
 **Input**: 用户要求运营链路接入 Hermes 和企微渠道，并完整实现未完成的周刊自动化 feature；前端样式由另一个 agent 处理，不应冲突。
 
 ---
@@ -29,5 +29,5 @@
 
 ## Stage Readiness
 
-- 当前阶段：`verify`
-- 阻塞项：需要完成本地测试、type-check、lint/build 和 NAS smoke 后才能 closeout。
+- 当前阶段：`closeout`
+- 阻塞项：无；本地验证、部署和 NAS smoke 已完成。
