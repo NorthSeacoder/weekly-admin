@@ -3,8 +3,8 @@
 **Umbrella**: `weekly-automation-runtime-roadmap`
 **Created**: 2026-06-22
 **Status**: active
-**Current Feature**: `weekly-suggest-apply-worker` (closed)
-**Next Recommended Feature**: `hermes-runtime-integration`
+**Current Feature**: `hermes-runtime-integration` (closed)
+**Next Recommended Feature**: `frontend-db-deploy-automation`
 
 ---
 
@@ -12,7 +12,7 @@
 
 本 roadmap 将 `admin-modernization-roadmap` closeout 后剩余的自动化执行能力按可交付 feature 重新组织。优先级采用用户确认的“周刊自动化优先”：先把现有 Karakeep 重跑和周刊发布/建议/应用等长任务纳入 Redis/worker/status 体系，再补完整任务中心、Hermes 外部 runtime 和安全清债。
 
-当前 `karakeep-resync-redis-state`、`weekly-publish-worker`、`weekly-production-readiness` 与 `weekly-suggest-apply-worker` 已完成。suggest/apply 已进入 Redis worker，Hermes 可通过 Admin API 发现当前 issue，NAS 可通过 Hermes/WeCom helper 发运营摘要。下一步进入跨仓的 `hermes-runtime-integration`。
+当前 `karakeep-resync-redis-state`、`weekly-publish-worker`、`weekly-production-readiness`、`weekly-suggest-apply-worker` 与 `hermes-runtime-integration` 已完成。NAS `hermes-agent` one-shot runtime 已接到 Admin `/api/v1` current/candidates/feedback/suggestions contract，并继续保持人工 apply/publish 边界。下一步建议补 public weekly 前端的 DB-only rebuild/deploy 自动化。
 
 ---
 
@@ -20,11 +20,11 @@
 
 | Field | Value |
 |---|---|
-| Current feature | `weekly-suggest-apply-worker` closed; next recommended `hermes-runtime-integration` |
-| specs/.active expected | `weekly-suggest-apply-worker` |
+| Current feature | `hermes-runtime-integration` closed; next recommended `frontend-db-deploy-automation` |
+| specs/.active expected | `hermes-runtime-integration` |
 | Current stage | `closeout` |
-| Next stage | `specify` for `hermes-runtime-integration` |
-| Current objective | 已完成周刊建议/应用和 Hermes/企微运营入口接入 worker/status 体系 |
+| Next stage | `specify` for `frontend-db-deploy-automation` |
+| Current objective | 已将外部 Hermes one-shot runtime 接入 Admin preview contract 和 WeCom 通知 |
 
 ---
 
@@ -36,8 +36,10 @@
 | `weekly-publish-worker` | 将周刊 Quail publish 从同步 automation route 迁入 queued worker，保留 idempotency 和 external side-effect evidence | done | `karakeep-resync-redis-state`, `agent-and-automation-contracts`, `redis-job-orchestration` | Karakeep slice closeout 后；现有 publish route contract 稳定 | closeout | 已 PASS；publish route 现在返回 queued job，由 worker 执行 Quail 发布 |
 | `weekly-production-readiness` | 收口当前周 issue、NAS sync/score/publish 调度、Quail dry-run、weekly Astro 前端 rebuild/deploy 和运行手册 | done | `weekly-publish-worker` | 用户要求本周开始正常投入使用，并可利用 NAS 现有服务 | closeout | 已 PASS；历史 backfill、Hermes runtime 和任务中心后置 |
 | `weekly-suggest-apply-worker` | 将 weekly suggest/apply 的耗时或副作用路径纳入 worker/status；人工确认仍是写回边界 | done | `weekly-publish-worker`, `hermes-weekly-intelligence` | publish worker 验证通过；明确 suggest/apply 哪些步骤需要异步化 | closeout | 已 PASS；current issue discovery、queued suggest/apply 和 Hermes/WeCom ops helper 已部署验证 |
-| `task-center-v1` | 在已有 dashboard/workbench summary 之上建立统一任务中心页面或视图 | backlog | `weekly-publish-worker`, `weekly-suggest-apply-worker` | 至少 3 类 workflow 已进入 Redis/status，任务中心有足够真实数据 | specify | 先有能力再做完整 UI，避免空壳任务中心 |
-| `hermes-runtime-integration` | 将外部 Hermes skill/runtime、NAS deployment、hermes-db/PG migrations 接入 Admin preview contract | backlog | `weekly-suggest-apply-worker` | Admin-side preview/apply/status 已稳定，外部 Hermes runtime 归属明确 | specify | 可能跨仓，不应只在 Admin repo 内完成 |
+| `hermes-runtime-integration` | 将外部 Hermes one-shot runtime 接入 Admin preview contract 和 WeCom 通知 | done | `weekly-suggest-apply-worker` | Admin-side preview/apply/status 已稳定，外部 Hermes runtime 归属明确 | closeout | 已 PASS；真实 Hermes dry-run/register/notify 和 WeCom smoke 已通过 |
+| `frontend-db-deploy-automation` | 在 Admin DB-only 周刊变更后自动触发 public weekly Astro rebuild/deploy，不触碰前端样式 | backlog | `weekly-production-readiness`, `hermes-runtime-integration` | public frontend 已确认读取数据库，但 DB-only publish 后仍需手动 rebuild/deploy | specify | 注意另一个 agent 正在改前端样式；优先做 CI/NAS/trigger 层，不改 Astro 组件样式 |
+| `task-center-v1` | 在已有 dashboard/workbench summary 之上建立统一任务中心页面或视图 | backlog | `weekly-publish-worker`, `weekly-suggest-apply-worker`, `hermes-runtime-integration` | 至少 3 类 workflow 已进入 Redis/status，任务中心有足够真实数据 | specify | 先有能力再做完整 UI，避免空壳任务中心 |
+| `hermes-memory-read-model` | 评估并落地 hermes-db/PG/pgvector 读模型，用于偏好记忆、artifact search 或语义召回 | backlog | `hermes-runtime-integration` | runtime 已稳定后，再看是否需要独立读模型，不迁移 Admin MySQL 事实源 | specify | 不阻塞本周生产使用；避免为抽象记忆引入第二事实源 |
 | `automation-runtime-hardening` | 补 secret rotation、token 管理 UI、审计面板、Meili circuit breaker、Prisma/GitHub Actions runtime 升级 | backlog | `weekly-publish-worker` | 自动化核心副作用 worker 化后，集中做安全和运行时清债 | specify | 用户选择自动化优先，因此本项后置但不取消 |
 
 ---
@@ -53,14 +55,15 @@
 | `weekly-publish-worker` | 2026-06-22 | PASS | `specs/weekly-publish-worker/acceptance.md` | 周刊 Quail publish 已进入 queued worker/retry/status 体系；下一推荐 `weekly-suggest-apply-worker` |
 | `weekly-production-readiness` | 2026-07-06 | PASS | `specs/weekly-production-readiness/acceptance.md` | 本周 issue 92 已通过 NAS job、Quail 和 Astro public site 端到端上线；下一推荐 `weekly-suggest-apply-worker` |
 | `weekly-suggest-apply-worker` | 2026-07-07 | PASS | `specs/weekly-suggest-apply-worker/acceptance.md` | 周刊 suggest/apply 已进入 queued worker；Hermes/WeCom 运营入口已通过 NAS smoke；下一推荐 `hermes-runtime-integration` |
+| `hermes-runtime-integration` | 2026-07-07 | PASS | `specs/hermes-runtime-integration/acceptance.md` | NAS Hermes one-shot runtime 已可生成/登记 preview artifact 并发 WeCom；下一推荐 `frontend-db-deploy-automation` |
 
 ---
 
 ## Next Recommendation
 
-完成 `weekly-suggest-apply-worker` 后，推荐进入 `hermes-runtime-integration`。理由是 Admin-side contract、worker/status 和 WeCom helper 已具备，下一步才是外部 Hermes skill runtime、NAS 调度和 hermes-db/PG read model 的跨仓交付。
+完成 `hermes-runtime-integration` 后，推荐进入 `frontend-db-deploy-automation`。理由是 public weekly 前端已经从数据库构建内容，但 DB-only publish 后仍缺自动 rebuild/deploy；这比任务中心更直接影响“本周开始正常投入使用”。
 
-若 suggest/apply 评估发现 apply 必须保持同步，应至少将 generate/register preview 的长任务纳入 worker，并保留 human apply 写回边界。
+完成前端自动部署后，再做 `task-center-v1`。如果需要更长期的偏好记忆或语义召回，再启动 `hermes-memory-read-model`，但不要让 PG/pgvector 成为 Admin MySQL 的第二事实源。
 
 ---
 

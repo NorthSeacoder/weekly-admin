@@ -205,6 +205,15 @@ Suggestion apply body 使用 `/api/v1/weekly/suggestions` 返回的 preview item
 
 Automation apply 同样返回 queued job envelope。浏览器工作台 wrapper 仍保留人工同步 apply 路径；外部 Hermes/cron/企微触发应走 queued `/api/v1` 路径。
 
+NAS Hermes runtime 使用同一 contract：
+
+```bash
+/vol1/1000/Docker/weekly-admin/scripts/weekly-hermes-runtime.sh dry-run
+/vol1/1000/Docker/weekly-admin/scripts/weekly-hermes-runtime.sh notify
+```
+
+该 runtime 只通过 `/api/v1/weekly/current`、`/api/v1/weekly/candidates` 和 `/api/v1/ai/feedback/digest` 构造 prompt，再用 `/api/v1/weekly/suggestions` register mode 登记 `weekly-suggestion.v1` artifact。它不得直接写 MySQL，不得自动 apply/publish。
+
 Publish body：
 
 ```json

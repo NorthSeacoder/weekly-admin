@@ -34,13 +34,19 @@ Hermes WeCom is the preferred short-message ops channel when available. The Admi
 ```bash
 /vol1/1000/Docker/weekly-admin/scripts/weekly-hermes-ops.sh notify
 /vol1/1000/Docker/weekly-admin/scripts/weekly-hermes-ops.sh suggest
+/vol1/1000/Docker/weekly-admin/scripts/weekly-hermes-runtime.sh dry-run
+/vol1/1000/Docker/weekly-admin/scripts/weekly-hermes-runtime.sh notify
 ```
 
 - `notify` sends the current issue state and top ready candidates to Hermes target `wecom` by default.
 - `suggest` first queues `/api/v1/weekly/suggestions` for the current issue, then sends the queued run id and candidate summary.
+- `weekly-hermes-runtime.sh dry-run` asks Hermes one-shot to generate a `weekly-suggestion.v1` artifact and prints it without writing Admin.
+- `weekly-hermes-runtime.sh register` registers that artifact through queued `/api/v1/weekly/suggestions`.
+- `weekly-hermes-runtime.sh notify` registers the artifact, checks the worker job, and sends the result to WeCom.
 - Override target with `HERMES_TARGET=wecom:MengPeng`.
+- Override the Hermes model command with `HERMES_ONESHOT_CMD=...`; the default uses the NAS-verified `krill/gpt-5.5` path.
 - The script uses `/api/v1/weekly/current` to discover `weeklyIssueId`; Hermes should not read MySQL directly.
-- WeCom is a review/notification channel only. Apply and Quail publish still require Admin/workbench confirmation.
+- Both scripts use Admin `/api/v1` only. WeCom is a review/notification channel only. Apply and Quail publish still require Admin/workbench confirmation.
 
 ## Frontend Deploy
 
