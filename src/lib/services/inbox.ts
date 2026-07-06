@@ -147,7 +147,7 @@ export async function buildContentDataForPromotion(
         .join('\n')
         .trim(),
     content_format: contentFormat as Prisma.contentsCreateInput['content_format'],
-    status: 'draft' as const,
+    status: overrides.auto_promoted ? 'ready' : 'draft',
     source: item.source_name,
     source_url: sourceUrl,
     word_count: 0,

@@ -53,7 +53,7 @@ describe('buildContentDataForPromotion', () => {
       title: 'A useful bookmark',
       slug: 'a-useful-bookmark',
       original_score: 91,
-      status: 'draft',
+      status: 'ready',
     });
     expect(data).not.toHaveProperty('category_id');
     expect(data).not.toHaveProperty('auto_promoted');
