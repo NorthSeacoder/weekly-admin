@@ -7,6 +7,7 @@ export const AUTOMATION_TOKEN_PREFIX = 'wa_';
 export type AutomationScope =
   | 'sync:run'
   | 'score:run'
+  | 'content:resync'
   | 'weekly:read'
   | 'weekly:suggest'
   | 'weekly:publish'

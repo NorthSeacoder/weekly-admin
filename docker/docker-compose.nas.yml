@@ -43,6 +43,8 @@ services:
       - weekly-network
     depends_on:
       - weekly-admin
+    healthcheck:
+      disable: true
     deploy:
       resources:
         limits:

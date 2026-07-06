@@ -1,12 +1,21 @@
-import { randomUUID } from 'crypto';
-import { getKarakeepApi } from '@/lib/services/karakeep-api';
-import { prisma } from '@/lib/db';
-import { KarakeepBookmark } from './karakeep-api';
+import { Queue, type QueueOptions } from 'bullmq';
 
-type ResyncPhase = 'updating' | 'waiting' | 'applying' | 'success' | 'failed';
+import type { AutomationRunSuccess } from '@/lib/automation/run';
+import { prisma } from '@/lib/db';
+import {
+  getAutomationJobStatus,
+  type AutomationJobStatus,
+  type JobStatusQueue,
+} from '@/lib/jobs/status';
+import { getJobQueuePrefix, getJobRedisConnection } from '@/lib/jobs/connection';
+import { getKarakeepApi } from '@/lib/services/karakeep-api';
+import type { KarakeepBookmark } from './karakeep-api';
+
+export type ResyncPhase = 'updating' | 'waiting' | 'applying' | 'success' | 'failed';
 
 export interface KarakeepResyncJob {
   jobId: string;
+  runId?: string;
   contentId: number;
   karakeepId: string;
   phase: ResyncPhase;
@@ -20,101 +29,202 @@ export interface KarakeepResyncJob {
   appliedSummary?: string | null;
   appliedImage?: string | null;
   updatedAt: string;
+  statusUrl?: string;
+  historyOnly?: boolean;
 }
 
-interface CreateJobParams {
+export type KarakeepResyncPayload = {
   contentId: number;
   karakeepId: string;
   sourceUrl: string;
   refreshScreenshot: boolean;
   screenshotLocked: boolean;
-  maxAttempts?: number;
-}
+  maxAttempts: number;
+  pollIntervalMs?: number;
+};
 
-const jobs = new Map<string, KarakeepResyncJob>();
+export type KarakeepResyncResultSummary = {
+  status: 'succeeded';
+  contentId: number;
+  karakeepId: string;
+  appliedSummary: string | null;
+  appliedImage: null;
+  summarizationStatus?: string;
+  taggingStatus?: string;
+  attempts: number;
+  maxAttempts: number;
+  karakeepSyncedAt: string;
+};
 
-const nowIso = () => new Date().toISOString();
+type KarakeepResyncDeps = {
+  now?: () => Date;
+  sleep?: (ms: number) => Promise<void>;
+};
 
-/**
- * 创建并初始化一次 Karakeep 重跑任务
- */
-export async function createResyncJob(params: CreateJobParams): Promise<KarakeepResyncJob> {
-  const {
-    contentId,
-    karakeepId,
-    sourceUrl,
-    refreshScreenshot,
-    screenshotLocked,
-    maxAttempts = 12,
-  } = params;
+type QueueJobWithData = {
+  data?: unknown;
+};
 
-  const jobId = randomUUID();
-  const base: KarakeepResyncJob = {
-    jobId,
-    contentId,
-    karakeepId,
-    phase: 'updating',
-    attempt: 0,
-    maxAttempts,
-    refreshScreenshot,
-    screenshotLocked,
-    updatedAt: nowIso(),
-  };
-  jobs.set(jobId, base);
+const DEFAULT_POLL_INTERVAL_MS = 3000;
 
-  try {
-    // 通知 Karakeep 更新 URL，触发重新 summary/截图
-    const api = getKarakeepApi('重跑任务');
-    if (!api) {
-      const job = jobs.get(jobId)!;
-      job.phase = 'failed';
-      job.message = 'Karakeep 未配置，已跳过重跑任务';
-      job.updatedAt = nowIso();
-      jobs.set(jobId, job);
-      return job;
+const nowIso = (now: () => Date = () => new Date()) => now().toISOString();
+
+export async function executeKarakeepResyncJob(
+  payload: KarakeepResyncPayload,
+  deps: KarakeepResyncDeps = {}
+): Promise<AutomationRunSuccess<KarakeepResyncResultSummary>> {
+  const now = deps.now ?? (() => new Date());
+  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const api = getKarakeepApi('重跑任务');
+  if (!api) {
+    throw new Error('Karakeep 未配置，无法执行重跑任务');
+  }
+
+  const content = await prisma.contents.findUnique({
+    where: { id: BigInt(payload.contentId) },
+    select: { id: true },
+  });
+  if (!content) {
+    throw new Error('内容不存在，无法写回 Karakeep 重跑结果');
+  }
+
+  await api.updateBookmark(payload.karakeepId, {
+    url: payload.sourceUrl,
+    archived: false,
+  });
+
+  let lastBookmark: KarakeepBookmark | null = null;
+  const maxAttempts = normalizeMaxAttempts(payload.maxAttempts);
+  const pollIntervalMs = payload.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const bookmark = await api.getBookmark(payload.karakeepId);
+    lastBookmark = bookmark;
+
+    const summarizationDone = bookmark.summarizationStatus === 'success';
+    const taggingDone = !bookmark.taggingStatus || bookmark.taggingStatus === 'success';
+    if (summarizationDone && taggingDone) {
+      const applied = await applyBookmarkToContent(payload, bookmark, now);
+      return {
+        status: 'succeeded',
+        result: {
+          status: 'succeeded',
+          contentId: payload.contentId,
+          karakeepId: payload.karakeepId,
+          appliedSummary: applied.summary,
+          appliedImage: null,
+          summarizationStatus: bookmark.summarizationStatus,
+          taggingStatus: bookmark.taggingStatus,
+          attempts: attempt,
+          maxAttempts,
+          karakeepSyncedAt: applied.syncedAt,
+        },
+        externalSideEffect: true,
+        externalRef: payload.karakeepId,
+      };
     }
 
-    await api.updateBookmark(karakeepId, {
-      url: sourceUrl,
-      archived: false,
-    });
+    if (attempt < maxAttempts) {
+      await sleep(pollIntervalMs);
+    }
+  }
 
-    const job = jobs.get(jobId)!;
-    job.phase = 'waiting';
-    job.updatedAt = nowIso();
-    jobs.set(jobId, job);
-    return job;
-  } catch (error: any) {
-    const job = jobs.get(jobId)!;
-    job.phase = 'failed';
-    job.message = error?.message || '更新 Karakeep 失败';
-    job.updatedAt = nowIso();
-    jobs.set(jobId, job);
-    return job;
+  throw new Error(
+    `轮询超时，Karakeep 仍未完成 summary/tagging（summary=${lastBookmark?.summarizationStatus ?? 'unknown'}, tagging=${lastBookmark?.taggingStatus ?? 'unknown'}）`
+  );
+}
+
+export async function getKarakeepResyncStatus(jobId: string): Promise<KarakeepResyncJob | null> {
+  const status = await getAutomationJobStatus(jobId);
+  if (!status) return null;
+  const payload = await readKarakeepResyncPayload(jobId);
+  return mapKarakeepResyncStatus(status, payload);
+}
+
+export function mapKarakeepResyncStatus(
+  status: AutomationJobStatus,
+  payload?: Partial<KarakeepResyncPayload> | null
+): KarakeepResyncJob {
+  const result = parseResultSummary(status.resultSummary);
+  const contentId = numberFromUnknown(payload?.contentId) ?? numberFromUnknown(status.targetId) ?? result?.contentId ?? 0;
+  const maxAttempts = numberFromUnknown(payload?.maxAttempts) ?? result?.maxAttempts ?? status.queue.attempts ?? 0;
+  const attempt = result?.attempts ?? status.queue.attemptsMade ?? status.redis.snapshot?.attemptsMade ?? 0;
+  const phase = mapStatusToPhase(status);
+  const message = phase === 'failed'
+    ? status.errorMessage ?? status.redis.snapshot?.error ?? 'Karakeep 重跑失败'
+    : undefined;
+
+  return {
+    jobId: status.runId,
+    runId: status.runId,
+    contentId,
+    karakeepId: String(payload?.karakeepId ?? result?.karakeepId ?? ''),
+    phase,
+    attempt,
+    maxAttempts,
+    refreshScreenshot: Boolean(payload?.refreshScreenshot),
+    screenshotLocked: Boolean(payload?.screenshotLocked),
+    message,
+    summarizationStatus: result?.summarizationStatus,
+    taggingStatus: result?.taggingStatus,
+    appliedSummary: result?.appliedSummary,
+    appliedImage: null,
+    updatedAt: status.finishedAt ?? status.redis.snapshot?.updatedAt ?? status.startedAt ?? nowIso(),
+    statusUrl: `/api/v1/jobs/${status.runId}`,
+    historyOnly: status.historyOnly,
+  };
+}
+
+export async function readKarakeepResyncPayload(
+  jobId: string,
+  queue?: JobStatusQueue
+): Promise<Partial<KarakeepResyncPayload> | null> {
+  let createdQueue: JobStatusQueue | null = null;
+  try {
+    const statusQueue = queue ?? createKarakeepPayloadQueue();
+    if (!queue) createdQueue = statusQueue;
+    const job = await statusQueue.getJob(jobId) as (QueueJobWithData | null);
+    const data = job?.data;
+    if (!data || typeof data !== 'object') return null;
+    const payload = (data as { payload?: unknown }).payload;
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
+    return payload as Partial<KarakeepResyncPayload>;
+  } catch {
+    return null;
+  } finally {
+    await createdQueue?.close?.().catch(() => undefined);
   }
 }
 
-async function applyBookmarkToContent(job: KarakeepResyncJob, bookmark: KarakeepBookmark): Promise<KarakeepResyncJob> {
+function createKarakeepPayloadQueue(): JobStatusQueue {
+  return new Queue('automation', {
+    connection: getJobRedisConnection() as unknown as QueueOptions['connection'],
+    prefix: getJobQueuePrefix(),
+  }) as unknown as JobStatusQueue;
+}
+
+async function applyBookmarkToContent(
+  payload: KarakeepResyncPayload,
+  bookmark: KarakeepBookmark,
+  now: () => Date
+): Promise<{ summary: string | null; syncedAt: string }> {
   const summary = bookmark.summary || bookmark.content?.description || null;
 
   await prisma.contents.update({
-    where: { id: BigInt(job.contentId) },
-    data: {
-      summary,
-    },
+    where: { id: BigInt(payload.contentId) },
+    data: { summary },
   });
 
-  // 记录同步时间，便于前端展示
-  const syncValue = nowIso();
+  const syncValue = nowIso(now);
   await prisma.content_attributes.upsert({
     where: {
       content_id_attribute_name: {
-        content_id: BigInt(job.contentId),
+        content_id: BigInt(payload.contentId),
         attribute_name: 'karakeep_synced_at',
       },
     },
     create: {
-      content_id: BigInt(job.contentId),
+      content_id: BigInt(payload.contentId),
       attribute_name: 'karakeep_synced_at',
       attribute_value: syncValue,
       attribute_type: 'date',
@@ -125,109 +235,53 @@ async function applyBookmarkToContent(job: KarakeepResyncJob, bookmark: Karakeep
     },
   });
 
-  // 确保 karakeep_id 属性存在（兼容旧数据）
   await prisma.content_attributes.upsert({
     where: {
       content_id_attribute_name: {
-        content_id: BigInt(job.contentId),
+        content_id: BigInt(payload.contentId),
         attribute_name: 'karakeep_id',
       },
     },
     create: {
-      content_id: BigInt(job.contentId),
+      content_id: BigInt(payload.contentId),
       attribute_name: 'karakeep_id',
-      attribute_value: job.karakeepId,
+      attribute_value: payload.karakeepId,
       attribute_type: 'string',
     },
     update: {
-      attribute_value: job.karakeepId,
+      attribute_value: payload.karakeepId,
       attribute_type: 'string',
     },
   });
 
-  const updated: KarakeepResyncJob = {
-    ...job,
-    phase: 'success',
-    appliedSummary: summary ?? null,
-    appliedImage: null,
-    updatedAt: nowIso(),
-  };
-  jobs.set(job.jobId, updated);
-  return updated;
+  return { summary, syncedAt: syncValue };
 }
 
-/**
- * 推进任务状态（轮询）
- */
-export async function progressResyncJob(jobId: string): Promise<KarakeepResyncJob | null> {
-  const job = jobs.get(jobId);
-  if (!job) return null;
+function mapStatusToPhase(status: AutomationJobStatus): ResyncPhase {
+  if (status.durableStatus === 'failed' || status.durableStatus === 'cancelled') return 'failed';
+  if (status.durableStatus !== 'queued' && status.durableStatus !== 'running') return 'success';
+  if (status.status === 'queued') return 'updating';
+  if (status.status === 'retrying') return 'waiting';
+  return 'waiting';
+}
 
-  if (job.phase === 'success' || job.phase === 'failed') {
-    return job;
+function parseResultSummary(value: unknown): KarakeepResyncResultSummary | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Partial<KarakeepResyncResultSummary>;
+  if (typeof record.contentId !== 'number' || typeof record.karakeepId !== 'string') return null;
+  return record as KarakeepResyncResultSummary;
+}
+
+function numberFromUnknown(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
   }
+  return undefined;
+}
 
-  if (job.phase === 'updating') {
-    // 尚未完成初始化，直接返回
-    return job;
-  }
-
-  if (job.attempt >= job.maxAttempts) {
-    const failed: KarakeepResyncJob = {
-      ...job,
-      phase: 'failed',
-      message: '轮询超时，Karakeep 仍未完成',
-      updatedAt: nowIso(),
-    };
-    jobs.set(jobId, failed);
-    return failed;
-  }
-
-  try {
-    const api = getKarakeepApi('重跑任务轮询');
-    if (!api) {
-      const failed: KarakeepResyncJob = {
-        ...job,
-        phase: 'failed',
-        message: 'Karakeep 未配置，无法轮询',
-        updatedAt: nowIso(),
-      };
-      jobs.set(jobId, failed);
-      return failed;
-    }
-
-    const nextAttempt = job.attempt + 1;
-    const bookmark = await api.getBookmark(job.karakeepId);
-
-    const nextJob: KarakeepResyncJob = {
-      ...job,
-      attempt: nextAttempt,
-      summarizationStatus: bookmark.summarizationStatus,
-      taggingStatus: bookmark.taggingStatus,
-      updatedAt: nowIso(),
-    };
-
-    const summarizationDone = bookmark.summarizationStatus === 'success';
-    const taggingDone = !bookmark.taggingStatus || bookmark.taggingStatus === 'success';
-
-    if (summarizationDone && taggingDone) {
-      nextJob.phase = 'applying';
-      jobs.set(jobId, nextJob);
-      const applied = await applyBookmarkToContent(nextJob, bookmark);
-      return applied;
-    }
-
-    nextJob.phase = 'waiting';
-    jobs.set(jobId, nextJob);
-    return nextJob;
-  } catch (error: any) {
-    const failed: KarakeepResyncJob = {
-      ...job,
-      phase: 'failed',
-      message: error?.message || '轮询失败',
-      updatedAt: nowIso(),
-    };
-    jobs.set(jobId, failed);
-    return failed;
-  }
+function normalizeMaxAttempts(raw: number): number {
+  if (!raw || Number.isNaN(raw)) return 12;
+  return Math.min(Math.max(raw, 6), 30);
 }

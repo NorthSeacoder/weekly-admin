@@ -41,14 +41,48 @@ describe('automation job definitions', () => {
     });
   });
 
-  it('registers weekly job types as reserved but not submittable in this slice', () => {
-    expect(getAutomationJobDefinition('weekly.publish')).toMatchObject({
+  it('maps Karakeep resync to a content target', () => {
+    const definition = getSubmittableAutomationJobDefinition('karakeep.resync');
+
+    expect(definition).toMatchObject({
+      workflow: 'content',
+      step: 'karakeep_resync',
+      scope: 'content:resync',
+      firstBatch: true,
+      attempts: 2,
+    });
+    expect(definition.getTarget({ contentId: 42 })).toEqual({
+      targetType: 'content',
+      targetId: '42',
+      targetKey: 'content:42',
+    });
+  });
+
+  it('registers weekly publish as a submittable weekly issue job', () => {
+    const definition = getSubmittableAutomationJobDefinition('weekly.publish');
+
+    expect(definition).toMatchObject({
       workflow: 'weekly',
       step: 'publish',
+      scope: 'weekly:publish',
+      firstBatch: true,
+      attempts: 2,
+    });
+    expect(definition.getTarget({ weeklyIssueId: 7 })).toEqual({
+      targetType: 'weekly_issue',
+      targetId: '7',
+      targetKey: 'weekly_issue:7',
+    });
+  });
+
+  it('keeps weekly suggestion jobs reserved for later slices', () => {
+    expect(getAutomationJobDefinition('weekly.suggest')).toMatchObject({
+      workflow: 'weekly',
+      step: 'suggest',
       firstBatch: false,
     });
-    expect(() => getSubmittableAutomationJobDefinition('weekly.publish')).toThrow(
-      'Automation job weekly.publish is reserved'
+    expect(() => getSubmittableAutomationJobDefinition('weekly.suggest')).toThrow(
+      'Automation job weekly.suggest is reserved'
     );
   });
 });

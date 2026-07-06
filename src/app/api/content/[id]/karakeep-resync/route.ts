@@ -1,8 +1,12 @@
 import { NextRequest } from 'next/server';
+import { randomUUID } from 'crypto';
 import { authenticateRequest } from '@/lib/auth';
+import { authenticateAutomationTokenValue } from '@/lib/automation/auth';
+import { automationErrorToResponse, AutomationRouteError } from '@/lib/automation/http';
+import { submitAutomationJob } from '@/lib/jobs/submit';
 import { createNextErrorResponse, createNextSuccessResponse } from '@/lib/utils/serialization';
 import { ContentService } from '@/lib/services/content';
-import { createResyncJob, progressResyncJob } from '@/lib/services/karakeep-resync';
+import { getKarakeepResyncStatus, type KarakeepResyncJob, type KarakeepResyncPayload } from '@/lib/services/karakeep-resync';
 
 const MIN_ATTEMPTS = 6;
 const MAX_ATTEMPTS = 30;
@@ -10,6 +14,51 @@ const MAX_ATTEMPTS = 30;
 function normalizeAttempts(raw?: number): number {
   if (!raw || Number.isNaN(raw)) return 12;
   return Math.min(Math.max(raw, MIN_ATTEMPTS), MAX_ATTEMPTS);
+}
+
+function getServerAutomationToken() {
+  return process.env.ADMIN_UI_AUTOMATION_TOKEN?.trim() || process.env.CRON_API_TOKEN?.trim() || null;
+}
+
+async function getInternalAutomationCaller() {
+  const token = getServerAutomationToken();
+  if (!token) {
+    throw new AutomationRouteError(
+      'ADMIN_UI_AUTOMATION_TOKEN_MISSING',
+      'Karakeep resync requires ADMIN_UI_AUTOMATION_TOKEN or CRON_API_TOKEN with content:resync scope',
+      500
+    );
+  }
+
+  return authenticateAutomationTokenValue(token, 'content:resync');
+}
+
+function getOptionalIdempotencyKey(request: NextRequest, contentId: number) {
+  return request.headers.get('idempotency-key')?.trim() || `karakeep-resync:${contentId}:${randomUUID()}`;
+}
+
+function queuedJobToResyncJob(
+  job: { runId: string; statusUrl: string },
+  payload: KarakeepResyncPayload
+): KarakeepResyncJob {
+  return {
+    jobId: job.runId,
+    runId: job.runId,
+    contentId: payload.contentId,
+    karakeepId: payload.karakeepId,
+    phase: 'updating',
+    attempt: 0,
+    maxAttempts: payload.maxAttempts,
+    refreshScreenshot: payload.refreshScreenshot,
+    screenshotLocked: payload.screenshotLocked,
+    appliedImage: null,
+    updatedAt: new Date().toISOString(),
+    statusUrl: job.statusUrl,
+  };
+}
+
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export async function POST(
@@ -47,19 +96,36 @@ export async function POST(
       return createNextErrorResponse('NO_SOURCE_URL', '缺少 source_url，无法通知 Karakeep', 400);
     }
 
-    const job = await createResyncJob({
+    const screenshotLocked = content.screenshot_api === 'manual';
+    const payload: KarakeepResyncPayload = {
       contentId,
       karakeepId,
       sourceUrl: content.source_url,
-      refreshScreenshot,
-      screenshotLocked: content.screenshot_api === 'manual',
+      refreshScreenshot: refreshScreenshot && !screenshotLocked,
+      screenshotLocked,
       maxAttempts,
+    };
+    const caller = await getInternalAutomationCaller();
+    const job = await submitAutomationJob({
+      caller,
+      jobName: 'karakeep.resync',
+      idempotencyKey: getOptionalIdempotencyKey(request, contentId),
+      payload,
     });
 
-    return createNextSuccessResponse(job);
-  } catch (error: any) {
+    return createNextSuccessResponse(queuedJobToResyncJob(job, payload), job.idempotentReplay ? 200 : 202, {
+      runId: job.runId,
+      status: job.status,
+      idempotentReplay: job.idempotentReplay,
+      caller: job.caller,
+    });
+  } catch (error: unknown) {
+    const errorName = error instanceof Error ? error.name : '';
+    if (error instanceof AutomationRouteError || errorName.startsWith('Automation') || errorName === 'JobSubmissionError') {
+      return automationErrorToResponse(error);
+    }
     console.error('启动 Karakeep 重跑失败:', error);
-    return createNextErrorResponse('RESYNC_START_FAILED', '启动 Karakeep 重跑失败', 500, error?.message);
+    return createNextErrorResponse('RESYNC_START_FAILED', '启动 Karakeep 重跑失败', 500, getErrorMessage(error));
   }
 }
 
@@ -85,7 +151,7 @@ export async function GET(
       return createNextErrorResponse('MISSING_JOB_ID', '缺少 jobId', 400);
     }
 
-    const job = await progressResyncJob(jobId);
+    const job = await getKarakeepResyncStatus(jobId);
     if (!job) {
       return createNextErrorResponse('JOB_NOT_FOUND', '未找到对应的任务', 404);
     }
@@ -95,8 +161,8 @@ export async function GET(
     }
 
     return createNextSuccessResponse(job);
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('查询 Karakeep 重跑状态失败:', error);
-    return createNextErrorResponse('RESYNC_STATUS_FAILED', '查询 Karakeep 重跑状态失败', 500, error?.message);
+    return createNextErrorResponse('RESYNC_STATUS_FAILED', '查询 Karakeep 重跑状态失败', 500, getErrorMessage(error));
   }
 }

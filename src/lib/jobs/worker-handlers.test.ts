@@ -4,6 +4,9 @@ const getDataSourceByIdMock = vi.fn();
 const listDataSourcesMock = vi.fn();
 const syncDataSourceMock = vi.fn();
 const runBatchMock = vi.fn();
+const executeKarakeepResyncJobMock = vi.fn();
+const findWeeklyIssueMock = vi.fn();
+const publishWeeklyMock = vi.fn();
 
 vi.mock('@/lib/services/data-source', () => ({
   DataSourceService: {
@@ -21,6 +24,24 @@ vi.mock('@/lib/services/sync-orchestrator', () => ({
 vi.mock('@/lib/services/inbox-scoring', () => ({
   InboxScoringService: {
     runBatch: (...args: unknown[]) => runBatchMock(...args),
+  },
+}));
+
+vi.mock('@/lib/services/karakeep-resync', () => ({
+  executeKarakeepResyncJob: (...args: unknown[]) => executeKarakeepResyncJobMock(...args),
+}));
+
+vi.mock('@/lib/db', () => ({
+  prisma: {
+    weekly_issues: {
+      findUnique: (...args: unknown[]) => findWeeklyIssueMock(...args),
+    },
+  },
+}));
+
+vi.mock('@/lib/services/quail', () => ({
+  quailService: {
+    publishWeekly: (...args: unknown[]) => publishWeeklyMock(...args),
   },
 }));
 
@@ -143,7 +164,131 @@ describe('automation worker handlers', () => {
     });
   });
 
-  it('rejects reserved job types for the worker slice', async () => {
-    await expect(executeAutomationJob('weekly.publish', {})).rejects.toThrow('Unsupported worker job');
+  it('executes Karakeep resync through the worker handler', async () => {
+    executeKarakeepResyncJobMock.mockResolvedValueOnce({
+      status: 'succeeded',
+      result: {
+        status: 'succeeded',
+        contentId: 42,
+        karakeepId: 'bookmark_1',
+      },
+      externalSideEffect: true,
+      externalRef: 'bookmark_1',
+    });
+
+    await expect(executeAutomationJob('karakeep.resync', {
+      contentId: 42,
+      karakeepId: 'bookmark_1',
+      sourceUrl: 'https://example.com/post',
+      refreshScreenshot: false,
+      screenshotLocked: true,
+      maxAttempts: 12,
+    })).resolves.toMatchObject({
+      status: 'succeeded',
+      result: {
+        contentId: 42,
+        karakeepId: 'bookmark_1',
+      },
+      externalSideEffect: true,
+    });
+    expect(executeKarakeepResyncJobMock).toHaveBeenCalledWith(expect.objectContaining({
+      contentId: 42,
+      karakeepId: 'bookmark_1',
+    }));
+  });
+
+  it('publishes a weekly issue through Quail', async () => {
+    findWeeklyIssueMock.mockResolvedValueOnce({
+      id: 7,
+      issue_number: 7,
+      title: '第 7 期',
+      status: 'draft',
+      quail_post_id: null,
+      quail_post_slug: null,
+      quail_published_at: null,
+      quail_delivered_at: null,
+    });
+    publishWeeklyMock.mockResolvedValueOnce({
+      success: true,
+      quailPostId: 'qp_1',
+      quailPostSlug: 'weekly-7',
+    });
+
+    await expect(executeAutomationJob('weekly.publish', {
+      weeklyIssueId: 7,
+      deliver: true,
+    })).resolves.toMatchObject({
+      status: 'succeeded',
+      result: {
+        status: 'published',
+        weeklyIssueId: 7,
+        issueNumber: 7,
+        deliverRequested: true,
+        forceRepublish: false,
+        quailPostId: 'qp_1',
+        quailPostSlug: 'weekly-7',
+      },
+      externalSideEffect: true,
+      externalRef: 'weekly-7',
+    });
+    expect(findWeeklyIssueMock).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 7 },
+    }));
+    expect(publishWeeklyMock).toHaveBeenCalledWith(7, {
+      forceRepublish: false,
+      deliver: true,
+    });
+  });
+
+  it('fails weekly publish when the issue was already published', async () => {
+    findWeeklyIssueMock.mockResolvedValueOnce({
+      id: 7,
+      issue_number: 7,
+      title: '第 7 期',
+      status: 'published',
+      quail_post_id: 'qp_1',
+      quail_post_slug: 'weekly-7',
+      quail_published_at: new Date('2026-06-01T00:00:00.000Z'),
+      quail_delivered_at: null,
+    });
+
+    const error = await executeAutomationJob('weekly.publish', { weeklyIssueId: 7 }).catch((value) => value);
+
+    expect(error).toBeInstanceOf(AutomationJobExecutionError);
+    expect(error.summary).toMatchObject({
+      status: 'failed',
+      code: 'WEEKLY_ALREADY_PUBLISHED',
+      weeklyIssueId: 7,
+      quailPostSlug: 'weekly-7',
+    });
+    expect(publishWeeklyMock).not.toHaveBeenCalled();
+  });
+
+  it('fails weekly publish when Quail rejects the publish', async () => {
+    findWeeklyIssueMock.mockResolvedValueOnce({
+      id: 7,
+      issue_number: 7,
+      title: '第 7 期',
+      status: 'draft',
+      quail_post_id: null,
+      quail_post_slug: null,
+      quail_published_at: null,
+      quail_delivered_at: null,
+    });
+    publishWeeklyMock.mockResolvedValueOnce({ success: false, error: 'Quail down' });
+
+    const error = await executeAutomationJob('weekly.publish', {
+      weeklyIssueId: 7,
+      forceRepublish: true,
+    }).catch((value) => value);
+
+    expect(error).toBeInstanceOf(AutomationJobExecutionError);
+    expect(error.message).toBe('Quail down');
+    expect(error.summary).toMatchObject({
+      status: 'failed',
+      code: 'PUBLISH_FAILED',
+      weeklyIssueId: 7,
+      forceRepublish: true,
+    });
   });
 });

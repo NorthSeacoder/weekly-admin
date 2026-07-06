@@ -1,6 +1,9 @@
 import { DataSourceService } from '@/lib/services/data-source';
 import { SyncOrchestrator } from '@/lib/services/sync-orchestrator';
 import { InboxScoringService } from '@/lib/services/inbox-scoring';
+import { executeKarakeepResyncJob, type KarakeepResyncPayload } from '@/lib/services/karakeep-resync';
+import { prisma } from '@/lib/db';
+import { quailService } from '@/lib/services/quail';
 import type { AutomationRunSuccess } from '@/lib/automation/run';
 import type { AutomationJobName } from './definitions';
 
@@ -18,6 +21,12 @@ type ScorePayload = {
   limit?: number;
   delay?: number;
   source?: 'cron' | 'sync' | 'api';
+};
+
+type WeeklyPublishPayload = {
+  weeklyIssueId?: number;
+  forceRepublish?: boolean;
+  deliver?: boolean;
 };
 
 export class AutomationJobExecutionError extends Error {
@@ -39,6 +48,10 @@ export async function executeAutomationJob(
       return executeSyncJob(payload as SyncPayload);
     case 'score.run':
       return executeScoreJob(payload as ScorePayload);
+    case 'karakeep.resync':
+      return executeKarakeepResyncJob(payload as KarakeepResyncPayload);
+    case 'weekly.publish':
+      return executeWeeklyPublishJob(payload as WeeklyPublishPayload);
     default:
       throw new Error(`Unsupported worker job: ${jobName}`);
   }
@@ -139,6 +152,84 @@ async function executeScoreJob(payload: ScorePayload): Promise<AutomationRunSucc
       status,
       ...result,
     },
+  };
+}
+
+async function executeWeeklyPublishJob(payload: WeeklyPublishPayload): Promise<AutomationRunSuccess<Record<string, unknown>>> {
+  if (!Number.isInteger(payload.weeklyIssueId) || Number(payload.weeklyIssueId) <= 0) {
+    throw new AutomationJobExecutionError('Weekly issue id is required', {
+      status: 'failed',
+      code: 'VALIDATION_ERROR',
+      weeklyIssueId: payload.weeklyIssueId,
+    });
+  }
+
+  const weeklyIssueId = Number(payload.weeklyIssueId);
+  const forceRepublish = payload.forceRepublish ?? false;
+  const deliver = payload.deliver ?? false;
+  const issue = await prisma.weekly_issues.findUnique({
+    where: { id: weeklyIssueId },
+    select: {
+      id: true,
+      issue_number: true,
+      title: true,
+      status: true,
+      quail_post_id: true,
+      quail_post_slug: true,
+      quail_published_at: true,
+      quail_delivered_at: true,
+    },
+  });
+
+  if (!issue) {
+    throw new AutomationJobExecutionError('Weekly issue was not found', {
+      status: 'failed',
+      code: 'WEEKLY_ISSUE_NOT_FOUND',
+      weeklyIssueId,
+    });
+  }
+
+  if (issue.quail_published_at && !forceRepublish) {
+    throw new AutomationJobExecutionError('Weekly issue is already published', {
+      status: 'failed',
+      code: 'WEEKLY_ALREADY_PUBLISHED',
+      weeklyIssueId: issue.id,
+      quailPostId: issue.quail_post_id,
+      quailPostSlug: issue.quail_post_slug,
+      quailPublishedAt: issue.quail_published_at,
+    });
+  }
+
+  const result = await quailService.publishWeekly(weeklyIssueId, {
+    forceRepublish,
+    deliver,
+  });
+  if (!result.success) {
+    throw new AutomationJobExecutionError(result.error ?? 'Publish failed', {
+      status: 'failed',
+      code: 'PUBLISH_FAILED',
+      weeklyIssueId: issue.id,
+      issueNumber: issue.issue_number,
+      title: issue.title,
+      deliverRequested: deliver,
+      forceRepublish,
+    });
+  }
+
+  return {
+    status: 'succeeded',
+    result: {
+      status: 'published',
+      weeklyIssueId: issue.id,
+      issueNumber: issue.issue_number,
+      title: issue.title,
+      deliverRequested: deliver,
+      forceRepublish,
+      quailPostId: result.quailPostId,
+      quailPostSlug: result.quailPostSlug,
+    },
+    externalSideEffect: true,
+    externalRef: result.quailPostSlug ?? result.quailPostId,
   };
 }
 

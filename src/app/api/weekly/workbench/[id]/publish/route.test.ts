@@ -80,7 +80,7 @@ describe('/api/weekly/workbench/[id]/publish', () => {
     expect(postAutomationPublishMock).not.toHaveBeenCalled();
   });
 
-  it('delegates to automation publish route with server token and returns run evidence', async () => {
+  it('delegates to automation publish route with server token and returns queued run evidence', async () => {
     authMiddlewareMock.mockResolvedValueOnce({ id: 1, username: 'admin' });
     vi.stubEnv('ADMIN_UI_AUTOMATION_TOKEN', 'wa_publish');
     postAutomationPublishMock.mockImplementationOnce(async (request: NextRequest) => {
@@ -94,9 +94,14 @@ describe('/api/weekly/workbench/[id]/publish', () => {
 
       return Response.json({
         success: true,
-        data: { status: 'published', weeklyIssueId: 7, quailPostSlug: 'weekly-7' },
-        meta: { runId: 'auto_1', status: 'succeeded' },
-      });
+        data: {
+          status: 'queued',
+          jobId: 'auto_1',
+          runId: 'auto_1',
+          statusUrl: '/api/v1/jobs/auto_1',
+        },
+        meta: { runId: 'auto_1', status: 'queued' },
+      }, { status: 202 });
     });
 
     const response = await POST(
@@ -109,11 +114,12 @@ describe('/api/weekly/workbench/[id]/publish', () => {
     );
     const body = await response.json();
 
-    expect(response.status).toBe(200);
-    expect(body.data.status).toBe('published');
+    expect(response.status).toBe(202);
+    expect(body.data.status).toBe('queued');
+    expect(body.data.statusUrl).toBe('/api/v1/jobs/auto_1');
     expect(body.meta).toMatchObject({
       runId: 'auto_1',
-      status: 'succeeded',
+      status: 'queued',
       humanCaller: { userId: 1, username: 'admin' },
     });
   });

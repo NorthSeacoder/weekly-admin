@@ -19,6 +19,11 @@ const caller: AutomationCaller = {
   scopes: ['score:run'],
 };
 
+const weeklyPublishCaller: AutomationCaller = {
+  ...caller,
+  scopes: ['weekly:publish'],
+};
+
 const queuedJob: QueuedAutomationJob = {
   jobId: 'auto_retry',
   runId: 'auto_retry',
@@ -155,16 +160,64 @@ describe('retryAutomationRun', () => {
     });
   });
 
+  it('creates a new queued weekly publish run from the retained original payload', async () => {
+    const automationRuns = buildAutomationRuns({
+      id: 'auto_1',
+      workflow: 'weekly',
+      step: 'publish',
+      status: 'failed',
+    });
+    const queue = buildQueue({
+      runId: 'auto_1',
+      payload: { weeklyIssueId: 7, deliver: true },
+    });
+    const weeklyQueuedJob: QueuedAutomationJob = {
+      ...queuedJob,
+      workflow: 'weekly',
+      step: 'publish',
+      target: {
+        targetType: 'weekly_issue',
+        targetId: '7',
+        targetKey: 'weekly_issue:7',
+      },
+    };
+    const submitJob = vi.fn(async () => weeklyQueuedJob);
+
+    await expect(retryAutomationRun({
+      runId: 'auto_1',
+      caller: weeklyPublishCaller,
+      idempotencyKey: 'retry-click-1',
+    }, {
+      automationRuns,
+      queue,
+      submitJob,
+    })).resolves.toEqual({
+      ...weeklyQueuedJob,
+      retryOfRunId: 'auto_1',
+    });
+
+    expect(submitJob).toHaveBeenCalledWith({
+      caller: weeklyPublishCaller,
+      jobName: 'weekly.publish',
+      idempotencyKey: buildRetryIdempotencyKey('auto_1', 'retry-click-1'),
+      payload: { weeklyIssueId: 7, deliver: true },
+    }, {
+      queue,
+      redis: undefined,
+      prefix: undefined,
+    });
+  });
+
   it('rejects unsupported reserved workflow retries', async () => {
     await expect(retryAutomationRun({
       runId: 'auto_1',
-      caller,
+      caller: weeklyPublishCaller,
       idempotencyKey: 'retry-click-1',
     }, {
       automationRuns: buildAutomationRuns({
         id: 'auto_1',
         workflow: 'weekly',
-        step: 'publish',
+        step: 'suggest',
         status: 'failed',
       }),
       queue: buildQueue({ payload: { weeklyIssueId: 1 } }),

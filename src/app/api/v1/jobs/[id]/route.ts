@@ -13,6 +13,7 @@ const ParamsSchema = z.object({
 const WORKFLOW_READ_SCOPES: Record<string, AutomationScope[]> = {
   sync: ['sync:run'],
   score: ['score:run'],
+  content: ['content:resync'],
   weekly: ['weekly:read', 'weekly:suggest', 'weekly:publish'],
 };
 

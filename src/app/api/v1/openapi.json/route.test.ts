@@ -18,6 +18,7 @@ describe('/api/v1/openapi.json', () => {
     expect(body['x-automation-scopes']).toEqual(expect.arrayContaining([
       'sync:run',
       'score:run',
+      'content:resync',
       'weekly:read',
       'weekly:suggest',
       'weekly:publish',
@@ -55,6 +56,8 @@ describe('/api/v1/openapi.json', () => {
       { AutomationBearer: ['ops:read'] },
       { AutomationBearer: ['sync:run'] },
       { AutomationBearer: ['score:run'] },
+      { AutomationBearer: ['content:resync'] },
+      { AutomationBearer: ['weekly:publish'] },
     ]);
     expect(body.paths['/jobs/{id}'].get.responses['200'].content['application/json'].schema.allOf[1].properties.data.$ref)
       .toBe('#/components/schemas/JobStatusResult');
@@ -75,13 +78,23 @@ describe('/api/v1/openapi.json', () => {
     expect(body.paths['/jobs/{id}/retry'].post.security).toEqual([
       { AutomationBearer: ['sync:run'] },
       { AutomationBearer: ['score:run'] },
+      { AutomationBearer: ['weekly:publish'] },
     ]);
+    expect(body.paths['/jobs/{id}/retry'].post.description).toContain('weekly publish');
     expect(body.paths['/jobs/{id}/retry'].post.parameters).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: 'Idempotency-Key', required: true }),
     ]));
     expect(body.paths['/jobs/{id}/retry'].post.responses['202'].content['application/json'].schema.allOf[1].properties.data.$ref)
       .toBe('#/components/schemas/RetryJobResult');
     expect(body.components.schemas.RetryJobResult.properties).toHaveProperty('retryOfRunId');
+  });
+
+  it('documents weekly publish as a queued automation job', async () => {
+    const body = await (await GET()).json();
+
+    expect(body.paths['/weekly/publish'].post.summary).toBe('Queue weekly publish');
+    expect(body.paths['/weekly/publish'].post.responses['202'].content['application/json'].schema.allOf[1].properties.data.$ref)
+      .toBe('#/components/schemas/QueuedJobResult');
   });
 
   it('documents Hermes weekly suggestion register mode', async () => {

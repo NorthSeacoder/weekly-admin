@@ -157,6 +157,10 @@ JOB_WORKER_HEARTBEAT_INTERVAL_MS=30000
 JOB_WORKER_HEARTBEAT_TTL_SECONDS=90
 ```
 
+如果 Admin UI 需要触发 Karakeep 内容重跑，`ADMIN_UI_AUTOMATION_TOKEN`（或 fallback 的 `CRON_API_TOKEN`）必须对应一个 active automation token，并包含 `content:resync` scope。该重跑会进入同一个 Redis/BullMQ worker，不再依赖 web 进程内存状态。
+
+周刊 Quail 发布同样依赖 Redis/BullMQ worker：`POST /api/v1/weekly/publish` 只提交 `weekly.publish` job，实际 Quail 调用由 `weekly-admin-worker` 执行；用于 Admin UI 发布的 automation token 需要包含 `weekly:publish` scope。
+
 部署后检查：
 
 ```bash

@@ -73,6 +73,8 @@ export function getAutomationOpenApiDocument() {
             { AutomationBearer: ['ops:read'] },
             { AutomationBearer: ['sync:run'] },
             { AutomationBearer: ['score:run'] },
+            { AutomationBearer: ['content:resync'] },
+            { AutomationBearer: ['weekly:publish'] },
           ],
           parameters: [
             {
@@ -90,10 +92,11 @@ export function getAutomationOpenApiDocument() {
         post: {
           tags: ['Jobs'],
           summary: 'Retry failed automation job',
-          description: 'Creates a new queued run for a failed sync/score job when the original BullMQ payload is still retained. Requires the same workflow scope and an Idempotency-Key header.',
+          description: 'Creates a new queued run for a failed sync/score/weekly publish job when the original BullMQ payload is still retained. Requires the same workflow scope and an Idempotency-Key header.',
           security: [
             { AutomationBearer: ['sync:run'] },
             { AutomationBearer: ['score:run'] },
+            { AutomationBearer: ['weekly:publish'] },
           ],
           parameters: [
             {
@@ -215,8 +218,8 @@ export function getAutomationOpenApiDocument() {
       '/weekly/publish': {
         post: {
           tags: ['Weekly'],
-          summary: 'Publish weekly issue',
-          description: 'Publishes a weekly issue to Quail. Already-published issues require forceRepublish.',
+          summary: 'Queue weekly publish',
+          description: 'Queues a weekly issue publish job for Quail. Already-published issues fail in the worker unless forceRepublish is true.',
           security: [{ AutomationBearer: ['weekly:publish'] }],
           parameters: [idempotencyHeader()],
           requestBody: jsonBody({
@@ -229,7 +232,7 @@ export function getAutomationOpenApiDocument() {
             },
             additionalProperties: false,
           }),
-          responses: automationResponses('WeeklyPublishResult'),
+          responses: automationResponses('QueuedJobResult', 202),
         },
       },
       '/ai/feedback/digest': {
@@ -427,6 +430,7 @@ export function getAutomationOpenApiDocument() {
     'x-automation-scopes': [
       'sync:run',
       'score:run',
+      'content:resync',
       'weekly:read',
       'weekly:suggest',
       'weekly:publish',

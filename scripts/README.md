@@ -44,7 +44,7 @@ pnpm tsx scripts/check-db.ts
 pnpm tsx scripts/create-automation-token.ts \
   --name n8n-prod \
   --caller-type n8n \
-  --scopes sync:run,score:run,weekly:read,weekly:suggest
+  --scopes sync:run,score:run,content:resync,weekly:read,weekly:suggest
 ```
 
 **功能**：

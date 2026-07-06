@@ -51,6 +51,7 @@ Admin 项目负责:
 │    • 同步/评分由 Admin 服务层执行                              │
 │    • automation token + scope + idempotency                    │
 │    • automation_runs 记录 run 状态                             │
+│    • Karakeep 内容重跑使用 content:resync scope + worker        │
 │                                                               │
 │  Hermes 技能: 学习用户偏好 (每周日触发)                        │
 │    • 分析本周你的手动调整                                      │
@@ -424,7 +425,7 @@ src/app/api/v1/
 │   ├── candidates/route.ts   # GET /api/v1/weekly/candidates
 │   ├── suggestions/route.ts  # POST /api/v1/weekly/suggestions (preview)
 │   ├── suggestions/[id]/apply/route.ts # POST /api/v1/weekly/suggestions/:id/apply
-│   └── publish/route.ts      # POST /api/v1/weekly/publish
+│   └── publish/route.ts      # POST /api/v1/weekly/publish (queued Quail publish)
 ├── openapi.json/route.ts     # GET /api/v1/openapi.json
 └── ai/
     ├── score/route.ts        # POST /api/v1/ai/score (human JWT 手动单条重评)
@@ -713,6 +714,14 @@ NAS / Docker：
   - sync/score/candidates/suggestions/apply/publish contract
   - Hermes 技能 `weekly_preference_learning` 后续通过 digest 消费反馈
 - **Out of scope**:权重直接改 prompt(交给 F1 下一迭代)
+
+### Karakeep resync Redis 化
+
+- **目标**: 内容页手动触发 Karakeep 重跑时，不再使用 web 进程内 `Map` 保存任务状态；任务进入 Redis/BullMQ worker，并由 `automation_runs` 记录 durable evidence。
+- **入口**: `POST /api/content/[id]/karakeep-resync` 仍是 cookie-auth UI route；服务端使用 `ADMIN_UI_AUTOMATION_TOKEN` 或 `CRON_API_TOKEN` 提交 `karakeep.resync` job。
+- **权限**: 内部 token 必须包含 `content:resync` scope。
+- **状态**: `GET /api/content/[id]/karakeep-resync?jobId=...` 只读取状态，不推进 Karakeep 轮询副作用。
+- **边界**: 只写回 `contents.summary` 与 `content_attributes.karakeep_synced_at` / `karakeep_id`；不恢复图片字段写回。
 - **状态**:Admin contract 已完成并提交 commit `1f38443`; Hermes 记忆写入属于后续 `hermes-weekly-intelligence`
 - **验收候选**:已由 `specs/agent-and-automation-contracts/acceptance.md` 覆盖
 
@@ -749,10 +758,10 @@ NAS / Docker：
 #### F6. publish-pipeline
 - **目标**:周刊草稿一键发布到 Quail + 邮件触达
 - **In scope**:
-  - `POST /api/v1/weekly/publish`
-  - Quail API 调用封装
-  - 已发布无 `forceRepublish` 返回 conflict
-  - Quail 失败不标记本地成功
+  - `POST /api/v1/weekly/publish` 提交 `weekly.publish` queued job
+  - Worker 内执行 Quail API 调用
+  - 已发布无 `forceRepublish` 时 worker job 失败
+  - Quail 失败不标记本地成功,失败 run 可通过 `/api/v1/jobs/{id}/retry` 重试
 - **Out of scope**:订阅者管理(已在 Quail 侧)
 - **状态**:Admin automation publish contract 已完成;UI 工作台和最终发布体验仍在后续 `admin-shell-and-weekly-workbench`
 - **验收候选**:点击发布 → Admin 调 `/api/v1/weekly/publish` → Quail 收到 → 订阅邮件成功送达样例邮箱

@@ -3,17 +3,18 @@ export const AUTOMATION_QUEUE_NAME = 'automation';
 export type AutomationJobName =
   | 'sync.run'
   | 'score.run'
+  | 'karakeep.resync'
   | 'weekly.suggest'
   | 'weekly.apply'
   | 'weekly.publish';
 
-export type AutomationJobWorkflow = 'sync' | 'score' | 'weekly';
+export type AutomationJobWorkflow = 'sync' | 'score' | 'content' | 'weekly';
 
 export type AutomationJobDefinition = {
   workflow: AutomationJobWorkflow;
   step: string;
   jobName: AutomationJobName;
-  scope: 'sync:run' | 'score:run' | 'weekly:suggest' | 'weekly:publish';
+  scope: 'sync:run' | 'score:run' | 'content:resync' | 'weekly:suggest' | 'weekly:publish';
   firstBatch: boolean;
   attempts: number;
   backoff: {
@@ -75,6 +76,24 @@ export const AUTOMATION_JOB_DEFINITIONS: Record<AutomationJobName, AutomationJob
       targetKey: 'inbox:score_batch',
     }),
   },
+  'karakeep.resync': {
+    workflow: 'content',
+    step: 'karakeep_resync',
+    jobName: 'karakeep.resync',
+    scope: 'content:resync',
+    firstBatch: true,
+    attempts: 2,
+    backoff: { type: 'exponential', delay: 30_000 },
+    rateLimit: { limit: 10, windowMs: 60_000 },
+    getTarget: (payload) => {
+      const contentId = payload.contentId;
+      return {
+        targetType: 'content',
+        targetId: contentId === undefined ? 'unknown' : String(contentId),
+        targetKey: `content:${contentId === undefined ? 'unknown' : contentId}`,
+      };
+    },
+  },
   'weekly.suggest': {
     workflow: 'weekly',
     step: 'suggest',
@@ -102,9 +121,9 @@ export const AUTOMATION_JOB_DEFINITIONS: Record<AutomationJobName, AutomationJob
     step: 'publish',
     jobName: 'weekly.publish',
     scope: 'weekly:publish',
-    firstBatch: false,
-    attempts: 1,
-    backoff: { type: 'fixed', delay: 0 },
+    firstBatch: true,
+    attempts: 2,
+    backoff: { type: 'exponential', delay: 30_000 },
     rateLimit: { limit: 3, windowMs: 60_000 },
     getTarget: weeklyIssueTarget,
   },

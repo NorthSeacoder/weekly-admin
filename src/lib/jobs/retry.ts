@@ -133,6 +133,7 @@ export function createAutomationRetryQueue(): RetryQueue {
 function jobNameForRun(run: { workflow: string; step: string }): AutomationJobName {
   if (run.workflow === 'sync' && run.step === 'run') return 'sync.run';
   if (run.workflow === 'score' && run.step === 'run') return 'score.run';
+  if (run.workflow === 'weekly' && run.step === 'publish') return 'weekly.publish';
 
   throw new JobRetryError('JOB_RETRY_UNSUPPORTED', 'This automation job type cannot be retried yet', 409, {
     workflow: run.workflow,
