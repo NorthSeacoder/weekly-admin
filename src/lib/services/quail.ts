@@ -97,6 +97,13 @@ export class QuailService {
         // 已存在，更新文章
         const postData = this.generateQuailContent(issue);
         await quailApi.updatePost(issue.quail_post_slug, postData);
+        await prisma.weekly_issues.update({
+          where: { id: issueId },
+          data: {
+            status: 'published',
+            quail_publish_error: null,
+          },
+        });
 
         return {
           success: true,
@@ -119,6 +126,7 @@ export class QuailService {
       await prisma.weekly_issues.update({
         where: { id: issueId },
         data: {
+          status: 'published',
           quail_post_id: String(post.id),
           quail_post_slug: post.slug,
           quail_published_at: new Date(),
