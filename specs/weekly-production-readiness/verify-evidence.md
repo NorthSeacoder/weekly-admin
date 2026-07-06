@@ -7,6 +7,7 @@ Verified on 2026-07-06.
 - Commit `614c53b`: fixed promoted content create data to use `categories.connect` and remove invalid fields.
 - Commit `2b5a8f6`: auto-promoted contents now become `ready`.
 - Commit `db35598`: Quail-published weekly issues are marked `published`.
+- Continuity fix: auto-create and the editor now keep issue numbers continuous and allow one issue to span missed weeks; `getWeekRange` now uses the historical Sunday-Saturday weekly cycle with date-only boundaries.
 - GitHub Actions `28798416636`: build and deploy succeeded for `db35598`.
 - NAS status: `weekly-admin` running healthy; `weekly-admin-worker` running with health `none`.
 
@@ -22,7 +23,8 @@ build: passed
 
 ## Current Week
 
-- Current issue created: `weekly_issues.id=92`, `issue_number=92`, slug `issue-92`, range starts `2026-07-06`.
+- Current issue created: `weekly_issues.id=92`, `issue_number=92`, slug `issue-92`.
+- Continuity correction: issue 92 should cover `2026-03-29` through `2026-07-11`, preserving issue numbering while allowing a cross-week range instead of generating empty gap issues.
 - Sync job `auto_72cb0bb4-3c05-41f4-9095-cba3f4ba00c1`: terminal `empty` after source was already synced.
 - Score job `auto_56f8e2b4-60d0-4e70-8165-b48ad3de50e5`: terminal `partial_success`; produced 47 ready contents, with parse errors isolated.
 - Manual fallback apply run `auto_201ed424-464f-489f-bbc2-a4ae2f34c16b`: linked 12 contents to issue 92.

@@ -32,7 +32,7 @@
 
 1. Given production 数据库最新 issue 只到 2026-03-28  
    When 执行当前周创建/补齐流程  
-   Then 数据库存在覆盖 2026-07-06 所在周的 draft issue，issue_number 连续递增，标题和 slug 可被前端读取。
+   Then 数据库存在覆盖 2026-07-06 所在周的 draft issue，issue_number 连续递增；如果上一期和当前周之间存在断档，本期允许跨周覆盖断档，标题和 slug 可被前端读取。
 
 2. Given contents/inbox 已有候选内容  
    When 执行 sync/score/suggest/apply 或人工 fallback  
@@ -41,7 +41,7 @@
 **Edge Cases**:
 
 - 如果本周内容不足，允许人工从近期 published contents 中补齐，但必须记录来源和原因。
-- 如果历史 issue 缺口很多，本 feature 只要求当前周可生产；历史补齐进入后续治理，不阻塞本周启用。
+- 如果历史日期缺口很多，本 feature 只要求当前期号连续且当前周可生产；允许本期跨周覆盖缺口，历史细分补齐进入后续治理，不阻塞本周启用。
 
 ### User Story 2 - NAS 自动化链路可靠 (Priority: P1)
 
@@ -87,7 +87,7 @@
 
 ### Functional Requirements
 
-- **FR-001**: 系统必须创建或确认 2026-07-06 所在周的 production weekly issue。
+- **FR-001**: 系统必须创建或确认覆盖 2026-07-06 所在周的 production weekly issue，且期号连续；存在断档时允许该 issue 跨周。
 - **FR-002**: 系统必须能把当前周候选内容关联到本周 issue，并保留人工 fallback 路径。
 - **FR-003**: Admin `/api/v1/jobs/sync`、`/api/v1/jobs/score`、`/api/v1/weekly/publish` 必须通过 NAS Redis worker 跑通。
 - **FR-004**: NAS 必须保留 `weekly-admin` Web 服务和 `weekly-admin-worker` worker 服务，worker 不应继承 Web-only healthcheck。

@@ -55,10 +55,10 @@
 
 - [x] T006 [US1] 创建或确认 2026-07-06 所在周 issue
   - scope: production DB, `src/lib/services/weekly-automation.ts`
-  - slice: 当前周 draft issue 存在
+  - slice: 当前周 draft issue 存在；期号连续，允许跨周覆盖断档
   - blocked_by: T004
   - maps_to: FR-001
-  - verify: SQL 查询显示 start/end 覆盖 2026-07-06
+  - verify: SQL 查询显示 start/end 覆盖 2026-07-06，且 start 接上上一期 end 后一天
 
 - [x] T007 [US1] 运行 sync/score 或确认候选池
   - scope: `/api/v1/jobs/sync`, `/api/v1/jobs/score`, `automation_runs`, `inbox_items`, `contents`

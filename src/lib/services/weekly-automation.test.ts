@@ -47,6 +47,7 @@ describe('weekly-automation service', () => {
 
   afterEach(() => {
     vi.resetAllMocks();
+    vi.useRealTimers();
   });
 
   describe('backfillWeeklyContents', () => {
@@ -242,6 +243,45 @@ describe('weekly-automation service', () => {
 
       expect(result.action).toBe('created');
       expect(result.issue?.issue_number).toBe(78);
+    });
+
+    it('should create a cross-week issue from the previous issue end when there is a gap', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-07-06T12:00:00.000Z'));
+
+      vi.mocked(prisma.weekly_issues.findFirst)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({
+          issue_number: 91,
+          end_date: new Date('2026-03-28T00:00:00.000Z'),
+        } as unknown as Awaited<ReturnType<typeof prisma.weekly_issues.findFirst>>);
+
+      vi.mocked(prisma.weekly_issues.create).mockResolvedValue({
+        id: 92,
+        issue_number: 92,
+        title: '我不知道的周刊第 92 期',
+        slug: 'issue-92',
+        start_date: new Date('2026-03-29T00:00:00.000Z'),
+        end_date: new Date('2026-07-11T00:00:00.000Z'),
+        status: 'draft',
+      } as Awaited<ReturnType<typeof prisma.weekly_issues.create>>);
+
+      const result = await autoCreateWeeklyIssue();
+
+      expect(result).toMatchObject({
+        action: 'created',
+        issue: {
+          issue_number: 92,
+          start_date: '2026-03-29',
+          end_date: '2026-07-11',
+        },
+      });
+      expect(prisma.weekly_issues.create).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({
+          start_date: new Date('2026-03-29T00:00:00.000Z'),
+          end_date: new Date('2026-07-11T00:00:00.000Z'),
+        }),
+      }));
     });
   });
 

@@ -9,7 +9,7 @@ The current weekly issue is live from the production database through Quail and 
 
 | Requirement | Verdict | Evidence |
 |---|---|---|
-| FR-001 current week issue | PASS | Issue 92 covers the week starting 2026-07-06. |
+| FR-001 current/cross-week issue | PASS | Issue 92 keeps numbering continuous and covers `2026-03-29` through the current production week ending `2026-07-11`. |
 | FR-002 issue content | PASS | 12 contents linked to issue 92. |
 | FR-003 queued jobs | PASS | sync, score, suggestion apply, and publish runs recorded in `automation_runs`. |
 | FR-004 NAS worker | PASS | Web healthy; worker running with healthcheck disabled. |
@@ -24,6 +24,7 @@ The current weekly issue is live from the production database through Quail and 
 - Frontend deployment automation: rebuild Astro when Admin publishes a DB-backed issue, not only when `sections/` changes.
 - Schema cleanup: either add `contents.auto_promoted` as documented, or retire that older requirement and standardize on `inbox_items.auto_promoted`.
 - Operations UI: expose token/schedule/run status in Admin instead of relying on SSH and SQL.
+- Historical draft issue cleanup: confirm whether old empty draft issues should be archived, merged, or kept as audit records.
 
 ## Closeout
 

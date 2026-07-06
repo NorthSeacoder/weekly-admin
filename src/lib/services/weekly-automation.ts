@@ -69,6 +69,32 @@ export interface AutoLinkResult {
   skippedContents: Array<{ id: number; title: string; reason: string }>;
 }
 
+function toUtcDateOnly(date: Date | string): Date {
+  const d = new Date(date);
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+}
+
+function addUtcDays(date: Date | string, days: number): Date {
+  const d = toUtcDateOnly(date);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d;
+}
+
+function formatUtcDate(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function resolveContinuousStartDate(
+  targetStartDate: Date,
+  targetEndDate: Date,
+  lastIssue?: { end_date?: Date | null } | null
+): Date {
+  if (!lastIssue?.end_date) return targetStartDate;
+
+  const nextStartDate = addUtcDays(lastIssue.end_date, 1);
+  return nextStartDate <= targetEndDate ? nextStartDate : targetStartDate;
+}
+
 // ============================================================================
 // Backfill Service
 // ============================================================================
@@ -338,12 +364,13 @@ export async function autoCreateWeeklyIssue(
   // 1. 获取目标周的时间范围
   const weekRange = getWeekRangeByOffset(weekOffset);
 
-  // 2. 检查该周是否已有周刊
+  // 2. 检查目标周是否已被某一期覆盖。周刊允许跨周，不能只做精确日期匹配。
   const existingIssue = await prisma.weekly_issues.findFirst({
     where: {
-      start_date: weekRange.startDate,
-      end_date: weekRange.endDate,
+      start_date: { lte: weekRange.endDate },
+      end_date: { gte: weekRange.startDate },
     },
+    orderBy: { issue_number: 'desc' },
   });
 
   if (existingIssue && !forceCreate) {
@@ -353,20 +380,22 @@ export async function autoCreateWeeklyIssue(
         id: existingIssue.id,
         issue_number: existingIssue.issue_number,
         title: existingIssue.title,
-        start_date: weekRange.startDateStr,
-        end_date: weekRange.endDateStr,
+        start_date: formatUtcDate(toUtcDateOnly(existingIssue.start_date)),
+        end_date: formatUtcDate(toUtcDateOnly(existingIssue.end_date)),
       },
       message: '该周周刊已存在',
     };
   }
 
-  // 3. 获取最大期号
+  // 3. 获取最大期号，并让下一期从上一期结束后一天接上；
+  // 如果中间断更，则本期跨周覆盖空档直到目标周末。
   const lastIssue = await prisma.weekly_issues.findFirst({
     orderBy: { issue_number: 'desc' },
-    select: { issue_number: true },
+    select: { issue_number: true, end_date: true },
   });
 
   const nextIssueNumber = (lastIssue?.issue_number || 0) + 1;
+  const startDate = resolveContinuousStartDate(weekRange.startDate, weekRange.endDate, lastIssue);
 
   // 4. 创建新周刊
   const newIssue = await prisma.weekly_issues.create({
@@ -374,7 +403,7 @@ export async function autoCreateWeeklyIssue(
       issue_number: nextIssueNumber,
       title: generateWeeklyTitle(nextIssueNumber),
       slug: generateWeeklySlug(nextIssueNumber),
-      start_date: weekRange.startDate,
+      start_date: startDate,
       end_date: weekRange.endDate,
       status: 'draft',
       total_items: 0,
@@ -389,7 +418,7 @@ export async function autoCreateWeeklyIssue(
       id: newIssue.id,
       issue_number: newIssue.issue_number,
       title: newIssue.title,
-      start_date: weekRange.startDateStr,
+      start_date: formatUtcDate(toUtcDateOnly(newIssue.start_date)),
       end_date: weekRange.endDateStr,
     },
   };
@@ -413,9 +442,10 @@ export async function autoLinkWeeklyContents(
   // 2. 查找或创建该周的周刊
   let issue = await prisma.weekly_issues.findFirst({
     where: {
-      start_date: weekRange.startDate,
-      end_date: weekRange.endDate,
+      start_date: { lte: weekRange.endDate },
+      end_date: { gte: weekRange.startDate },
     },
+    orderBy: { issue_number: 'desc' },
   });
 
   if (!issue) {

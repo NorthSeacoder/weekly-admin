@@ -15,20 +15,23 @@ export interface WeekRange {
 }
 
 /**
- * 获取指定日期所在周的周一和周日
+ * 获取指定日期所在周刊周期的周日和周六。
+ * 历史周刊数据按周日到周六排期，自动化也必须沿用这个周期，
+ * 否则会把同一期的日期推迟一天或制造空档。
  * @param date 日期，默认为当前日期
- * @returns 周一和周日的日期
+ * @returns 周日和周六的日期
  */
 export function getWeekRange(date?: Date | string | Dayjs): WeekRange {
   const d = dayjs(date).utc();
-  const monday = d.isoWeekday(1).startOf('day');
-  const sunday = d.isoWeekday(7).endOf('day');
+  const adjusted = d.add(1, 'day');
+  const sunday = adjusted.isoWeekday(1).subtract(1, 'day').startOf('day');
+  const saturday = sunday.add(6, 'day').startOf('day');
 
   return {
-    startDate: monday.toDate(),
-    endDate: sunday.toDate(),
-    startDateStr: monday.format('YYYY-MM-DD'),
-    endDateStr: sunday.format('YYYY-MM-DD'),
+    startDate: sunday.toDate(),
+    endDate: saturday.toDate(),
+    startDateStr: sunday.format('YYYY-MM-DD'),
+    endDateStr: saturday.format('YYYY-MM-DD'),
   };
 }
 
@@ -84,8 +87,8 @@ export function getWeeksDiff(
   date1: Date | string,
   date2: Date | string
 ): number {
-  const d1 = dayjs(date1).utc().startOf('isoWeek');
-  const d2 = dayjs(date2).utc().startOf('isoWeek');
+  const d1 = dayjs(date1).utc().add(1, 'day').startOf('isoWeek');
+  const d2 = dayjs(date2).utc().add(1, 'day').startOf('isoWeek');
   return d1.diff(d2, 'week');
 }
 

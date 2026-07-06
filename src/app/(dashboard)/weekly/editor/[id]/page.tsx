@@ -102,7 +102,16 @@ const WeeklyEditorPage: React.FC = () => {
     const lastStart = last.start_date ? dayjs(last.start_date) : null;
 
     if (lastEnd?.isValid()) {
-      return buildRangeFromDate(lastEnd.add(1, 'day'));
+      const nextStart = lastEnd.add(1, 'day');
+      const nextRange = buildRangeFromDate(nextStart);
+      const currentRange = buildRangeFromDate(dayjs());
+      if (dayjs(nextRange.end).isBefore(dayjs(currentRange.start))) {
+        return {
+          start: nextStart.format('YYYY-MM-DD'),
+          end: currentRange.end,
+        };
+      }
+      return nextRange;
     }
 
     if (lastStart?.isValid()) {
