@@ -165,21 +165,22 @@ const WeeklyEditorPage: React.FC = () => {
       }
 
       const loadedStart = normalizeDateInput(result.data.start_date);
-      const start = loadedStart ? dayjs(result.data.start_date) : dayjs();
+      const loadedEnd = normalizeDateInput(result.data.end_date);
+      const start = loadedStart ? dayjs(loadedStart) : dayjs();
       const { year, week, range } = getWeekInfoFromDate(start);
 
       setIssue({
         ...result.data,
-        start_date: range.start,
-        end_date: range.end,
+        start_date: loadedStart || range.start,
+        end_date: loadedEnd || range.end,
       });
       setTitle(result.data.title);
       setTitleTouched(true);
       setDesc(result.data.desc || '');
       setWeekYear(year);
       setWeekNumber(week);
-      setStartDate(range.start);
-      setEndDate(range.end);
+      setStartDate(loadedStart || range.start);
+      setEndDate(loadedEnd || range.end);
       setStatus(result.data.status);
     } catch (error) {
       const message = error instanceof Error ? error.message : '获取周刊详情失败';
