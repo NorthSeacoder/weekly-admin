@@ -52,6 +52,20 @@ Hermes WeCom is the preferred short-message ops channel when available. The Admi
 
 The public site lives in `/Users/yqg/personal/weekly/weekly`.
 
+After DB-only weekly changes, trigger the public Astro rebuild/deploy:
+
+```bash
+/vol1/1000/Docker/weekly-admin/scripts/weekly-frontend-deploy.sh dispatch
+/vol1/1000/Docker/weekly-admin/scripts/weekly-frontend-deploy.sh latest
+```
+
+- The script dispatches `NorthSeacoder/weekly` workflow `deploy.yml` on `main`.
+- It requires `WEEKLY_FRONTEND_GITHUB_TOKEN` or `GITHUB_TOKEN` with workflow dispatch permission.
+- `dry-run` prints repo/workflow/ref/reason and whether a token is configured, without printing the token.
+- Frontend workflow dispatch forces `astro build`; normal pushes still skip deploy when no build-producing content changed.
+
+Manual fallback:
+
 ```bash
 pnpm build
 scp -r /Users/yqg/personal/weekly/weekly/dist/. ali:/opt/1panel/apps/openresty/openresty/www/sites/weekly.mengpeng.tech/index/
